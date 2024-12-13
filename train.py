@@ -173,6 +173,14 @@ if args.cuda:
     kt_loss = KTLoss()
 
 
+def save_graph(epoch, graph_model, save_dir):
+    """현재 그래프 상태를 저장"""
+    if hasattr(graph_model, 'graph'):
+        graph = graph_model.graph.cpu().detach().numpy()  # 그래프 데이터 추출
+        np.save(os.path.join(save_dir, f"graph_epoch_{epoch}.npy"), graph)
+        print(f"Graph for epoch {epoch} saved at {save_dir}")
+
+
 def train(epoch, best_val_loss):
     t = time.time()
     loss_train = []
