@@ -131,4 +131,6 @@ dmypy.json
 .DS_Store
 .idea/*
 logs/*
-data/9기 최종 전달 데이터/*
+9기 최종 전달 데이터
+mlruns
+data/filtered_combined_user_data.csv

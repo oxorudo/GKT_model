@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_false', default=True, help='Disables CUDA training.')
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--data-dir', type=str, default='data', help='Data dir for loading input data.')
-parser.add_argument('--data-file', type=str, default='assistment_test15.csv', help='Name of input data file.')
+parser.add_argument('--data-file', type=str, default='filtered_combined_user_data.csv', help='Name of input data file.')
 parser.add_argument('--save-dir', type=str, default='logs', help='Where to save the trained model, leave empty to not save anything.')
 parser.add_argument('-graph-save-dir', type=str, default='graphs', help='Dir for saving concept graphs.')
 parser.add_argument('--load-dir', type=str, default='', help='Where to load the trained model if finetunning. ' + 'Leave empty to train from scratch')
@@ -172,14 +172,13 @@ if args.cuda:
     model = model.cuda()
     kt_loss = KTLoss()
 
-
+# 에포크마다 그래프를 저장하는 코드 추가
 def save_graph(epoch, graph_model, save_dir):
-    """현재 그래프 상태를 저장"""
-    if hasattr(graph_model, 'graph'):
-        graph = graph_model.graph.cpu().detach().numpy()  # 그래프 데이터 추출
-        np.save(os.path.join(save_dir, f"graph_epoch_{epoch}.npy"), graph)
-        print(f"Graph for epoch {epoch} saved at {save_dir}")
-
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    graph_file = os.path.join(save_dir, f'graph_epoch.pt')
+    torch.save(graph_model.state_dict(), graph_file)
+    print(f"Graph at epoch {epoch} saved to {graph_file}")
 
 def train(epoch, best_val_loss):
     t = time.time()
@@ -289,6 +288,11 @@ def train(epoch, best_val_loss):
         torch.save(model.state_dict(), model_file)
         torch.save(optimizer.state_dict(), optimizer_file)
         torch.save(scheduler.state_dict(), scheduler_file)
+
+        # 그래프 저장 (최적 모델일 때만)
+        if graph_model is not None:
+            save_graph(epoch, graph_model, args.graph_save_dir)
+        
         if args.model == 'GKT' and args.graph_type == 'VAE':
             print('Epoch: {:04d}'.format(epoch),
                   'loss_train: {:.10f}'.format(np.mean(loss_train)),

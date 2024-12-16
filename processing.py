@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, TensorDataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from utils import build_dense_graph
+import os
 
 # Graph-based Knowledge Tracing: Modeling Student Proficiency Using Graph Neural Network.
 # For more information, please refer to https://dl.acm.org/doi/10.1145/3350546.3352513
@@ -54,31 +55,36 @@ def load_dataset(file_path, batch_size, graph_type, dkt_graph_path=None, train_r
     NOTE: stole some code from https://github.com/lccasagrande/Deep-Knowledge-Tracing/blob/master/deepkt/data_util.py
     """
     df = pd.read_csv(file_path)
-    if "skill_id" not in df.columns:
-        raise KeyError(f"The column 'skill_id' was not found on {file_path}")
-    if "correct" not in df.columns:
-        raise KeyError(f"The column 'correct' was not found on {file_path}")
-    if "user_id" not in df.columns:
-        raise KeyError(f"The column 'user_id' was not found on {file_path}")
+    if "QuizCode" not in df.columns:
+        raise KeyError(f"The column 'QuizCode' was not found on {file_path}")
+    if "Correct" not in df.columns:
+        raise KeyError(f"The column 'Correct' was not found on {file_path}")
+    if "UserID" not in df.columns:
+        raise KeyError(f"The column 'UserID' was not found on {file_path}")
 
     # if not (df['correct'].isin([0, 1])).all():
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
 
+    df = df.iloc[:1001,:]
+
     # Step 1.1 - Remove questions without skill
-    df.dropna(subset=['skill_id'], inplace=True)
+    df.dropna(subset=['QuizCode'], inplace=True)
 
     # Step 1.2 - Remove users with a single answer
-    df = df.groupby('user_id').filter(lambda q: len(q) > 1).copy()
+    df = df.groupby('UserID').filter(lambda q: len(q) > 1).copy()
 
     # Step 2 - Enumerate skill id
-    df['skill'], _ = pd.factorize(df['skill_id'], sort=True)  # we can also use problem_id to represent exercises
+    df['skill'], _ = pd.factorize(df['QuizCode'], sort=True)  # we can also use problem_id to represent exercises
+
+    # correct 생성 (O -> 1, X -> 0)
+    df['Correct'] = df['Correct'].map({'O': 1, 'X': 0})
 
     # Step 3 - Cross skill id with answer to form a synthetic feature
     # use_binary: (0,1); !use_binary: (1,2,3,4,5,6,7,8,9,10,11,12). Either way, the correct result index is guaranteed to be 1
     if use_binary:
-        df['skill_with_answer'] = df['skill'] * 2 + df['correct']
+        df['skill_with_answer'] = df['skill'] * 2 + df['Correct']
     else:
-        df['skill_with_answer'] = df['skill'] * res_len + df['correct'] - 1
+        df['skill_with_answer'] = df['skill'] * res_len + df['Correct'] - 1
 
 
     # Step 4 - Convert to a sequence per user id and shift features 1 timestep
@@ -90,10 +96,10 @@ def load_dataset(file_path, batch_size, graph_type, dkt_graph_path=None, train_r
     def get_data(series):
         feature_list.append(series['skill_with_answer'].tolist())
         question_list.append(series['skill'].tolist())
-        answer_list.append(series['correct'].eq(1).astype('int').tolist())
-        seq_len_list.append(series['correct'].shape[0])
+        answer_list.append(series['Correct'].eq(1).astype('int').tolist())
+        seq_len_list.append(series['Correct'].shape[0])
 
-    df.groupby('user_id').apply(get_data)
+    df.groupby('UserID').apply(get_data)
     max_seq_len = np.max(seq_len_list)
     print('max seq_len: ', max_seq_len)
     student_num = len(seq_len_list)
