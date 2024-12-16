@@ -13,11 +13,31 @@ from torch.autograd import Variable
 from models import GKT, MultiHeadAttention, VAE, DKT
 from metrics import KTLoss, VAELoss
 from processing import load_dataset
+import mlflow
+import mlflow.pytorch
+from dotenv import load_dotenv
+import requests
+from mlflow.tracking import MlflowClient
 
 # Graph-based Knowledge Tracing: Modeling Student Proficiency Using Graph Neural Network.
 # For more information, please refer to https://dl.acm.org/doi/10.1145/3350546.3352513
 # Author: jhljx
 # Email: jhljx8918@gmail.com
+
+# .env 파일 로드
+load_dotenv(dotenv_path=".env")
+
+# 환경 변수 설정
+MLFLOW_SERVER_URI = os.getenv("MLFLOW_SERVER_URI")
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
+# 디버깅: 환경 변수 출력
+print("MLFLOW_SERVER_URI:", MLFLOW_SERVER_URI)
+print("SLACK_WEBHOOK_URL:", SLACK_WEBHOOK_URL)
+
+EXPERIMENT_NAME = "GKT test"
+MODEL_NAME = "GKT"
+ACCURACY_THRESHOLD = 0.6  # 성능 검증 기준값
 
 
 parser = argparse.ArgumentParser()
@@ -406,24 +426,147 @@ def test():
     if args.cuda:
         torch.cuda.empty_cache()
 
+def send_slack_notification(status, message):
+    """Slack 알림 전송"""
+    if not SLACK_WEBHOOK_URL:
+        print("Slack Webhook URL이 설정되지 않았습니다.")
+        return
+
+    payload = {"text": f"MLflow 작업 상태: {status}\n{message}"}
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+        response.raise_for_status()
+        print("Slack 알림 성공")
+    except requests.exceptions.RequestException as e:
+        print(f"Slack 알림 실패: {str(e)}")
+
+def register_model(run_id, artifact_uri, accuracy):
+    """MLflow 모델 레지스트리에 등록"""
+    client = MlflowClient()
+    try:
+        client.create_registered_model(MODEL_NAME)
+    except Exception:
+        print(f"Model {MODEL_NAME} already exists. Skipping creation.")
+
+    # 모델 버전 생성
+    try:
+        model_version = client.create_model_version(
+            name=MODEL_NAME, source=artifact_uri, run_id=run_id
+        )
+        print(f"Model version {model_version.version} created.")
+        send_slack_notification(
+            status="성공",
+            message=f"모델 등록 성공\nModel: {MODEL_NAME}\nVersion: {model_version.version}",
+        )
+
+        # 성능 기준에 따라 모델 단계 전환
+        target_stage = "Production" if accuracy >= ACCURACY_THRESHOLD else "Staging"
+        client.transition_model_version_stage(
+            name=MODEL_NAME, version=model_version.version, stage=target_stage
+        )
+        print(f"Model version {model_version.version} moved to {target_stage}.")
+        send_slack_notification(
+            status="성공",
+            message=f"모델 {target_stage} 단계로 전환 완료\nModel: {MODEL_NAME}\nVersion: {model_version.version}",
+        )
+    except Exception as e:
+        send_slack_notification(status="실패", message=f"모델 등록 중 오류 발생: {str(e)}")
+        raise
+
+
 if args.test is False:
-    # Train model
-    print('start training!')
-    t_total = time.time()
-    best_val_loss = np.inf
-    best_epoch = 0
-    for epoch in range(args.epochs):
-        val_loss = train(epoch, best_val_loss)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_epoch = epoch
-    print("Optimization Finished!")
-    print("Best Epoch: {:04d}".format(best_epoch))
-    if args.save_dir:
-        print("Best Epoch: {:04d}".format(best_epoch), file=log)
-        log.flush()
+    # MLflow 설정
+    mlflow.set_experiment("Knowledge Tracing Experiment")  # 실험 이름 설정
+
+    with mlflow.start_run() as run:
+        # MLflow에 파라미터 기록
+        mlflow.log_params(vars(args))
+
+        print('start training!')
+        t_total = time.time()
+        best_val_loss = np.inf
+        best_epoch = 0
+        for epoch in range(args.epochs):
+            val_loss = train(epoch, best_val_loss)
+            
+            # 에포크 결과를 MLflow에 기록
+            mlflow.log_metric("val_loss", val_loss, step=epoch)
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_epoch = epoch
+
+                # 최적 모델을 MLflow에 저장
+                if args.save_dir:
+                    mlflow.pytorch.log_model(model, "best_model")
+
+        print("Optimization Finished!")
+        print("Best Epoch: {:04d}".format(best_epoch))
+
+        # 최종 정보 기록
+        mlflow.log_metric("best_val_loss", best_val_loss)
+        mlflow.log_metric("best_epoch", best_epoch)
+
+        # Slack 알림: 학습 완료
+        send_slack_notification("완료", f"최적의 모델이 저장되었습니다.\nBest Epoch: {best_epoch}, Best Validation Loss: {best_val_loss:.10f}")
+
+        if args.save_dir:
+            print("Best Epoch: {:04d}".format(best_epoch), file=log)
+            log.flush()
 
 test()
-if log is not None:
-    print(save_dir)
-    log.close()
+
+# 테스트 후 MLflow에 테스트 결과 기록
+if args.test:
+    with mlflow.start_run() as run:
+        print('--------------------------------')
+        print('--------Testing-----------------')
+        print('--------------------------------')
+
+        loss_test = []
+        auc_test = []
+        acc_test = []
+
+        if graph_model is not None:
+            graph_model.eval()
+        model.eval()
+        model.load_state_dict(torch.load(model_file))
+
+        with torch.no_grad():
+            for batch_idx, (features, questions, answers) in enumerate(test_loader):
+                if args.cuda:
+                    features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
+
+                pred_res = model(features, questions) if args.model == 'DKT' else model(features, questions)[0]
+                loss_kt, auc, acc = kt_loss(pred_res, answers)
+
+                loss_test.append(float(loss_kt.cpu().detach().numpy()))
+                if auc != -1 and acc != -1:
+                    auc_test.append(auc)
+                    acc_test.append(acc)
+
+        mean_loss_test = np.mean(loss_test)
+        mean_auc_test = np.mean(auc_test)
+        mean_acc_test = np.mean(acc_test)
+
+        # 테스트 결과를 MLflow에 기록
+        mlflow.log_metric("loss_test", mean_loss_test)
+        mlflow.log_metric("auc_test", mean_auc_test)
+        mlflow.log_metric("acc_test", mean_acc_test)
+
+        print(f"loss_test: {mean_loss_test:.10f}",
+              f"auc_test: {mean_auc_test:.10f}",
+              f"acc_test: {mean_acc_test:.10f}")
+
+        # Slack 알림: 테스트 완료
+        send_slack_notification("테스트 완료", f"테스트가 완료되었습니다.\nLoss: {mean_loss_test:.10f}, AUC: {mean_auc_test:.10f}, Accuracy: {mean_acc_test:.10f}")
+
+        # 모델 등록
+        artifact_uri = mlflow.get_artifact_uri("best_model")
+        register_model(run.info.run_id, artifact_uri, mean_acc_test)
+
+        if args.save_dir:
+            print(f"loss_test: {mean_loss_test:.10f}",
+                  f"auc_test: {mean_auc_test:.10f}",
+                  f"acc_test: {mean_acc_test:.10f}", file=log)
+            log.flush()
