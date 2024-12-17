@@ -35,7 +35,7 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 print("MLFLOW_SERVER_URI:", MLFLOW_SERVER_URI)
 print("SLACK_WEBHOOK_URL:", SLACK_WEBHOOK_URL)
 
-EXPERIMENT_NAME = "GKT test"
+EXPERIMENT_NAME = "GKT testing"
 MODEL_NAME = "GKT"
 ACCURACY_THRESHOLD = 0.6  # 성능 검증 기준값
 
@@ -340,7 +340,7 @@ def train(epoch, best_val_loss):
                   'acc_val: {:.10f}'.format(np.mean(acc_val)),
                   'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
-    res = np.mean(loss_val)
+    res = [np.mean(loss_train), np.mean(auc_train), np.mean(acc_train), np.mean(loss_val), np.mean(auc_val), np.mean(acc_val)]
     del loss_train
     del auc_train
     del acc_train
@@ -353,79 +353,182 @@ def train(epoch, best_val_loss):
     return res
 
 
-def test():
-    loss_test = []
-    kt_test = []
-    vae_test = []
-    auc_test = []
-    acc_test = []
+# def test():
+#     loss_test = []
+#     kt_test = []
+#     vae_test = []
+#     auc_test = []
+#     acc_test = []
 
-    if graph_model is not None:
-        graph_model.eval()
-    model.eval()
-    model.load_state_dict(torch.load(model_file))
-    with torch.no_grad():
-        for batch_idx, (features, questions, answers) in enumerate(test_loader):
-            if args.cuda:
-                features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
-            ec_list, rec_list, z_prob_list = None, None, None
-            if args.model == 'GKT':
-                pred_res, ec_list, rec_list, z_prob_list = model(features, questions)
-            elif args.model == 'DKT':
-                pred_res = model(features, questions)
-            else:
-                raise NotImplementedError(args.model + ' model is not implemented!')
-            loss_kt, auc, acc = kt_loss(pred_res, answers)
-            loss_kt = float(loss_kt.cpu().detach().numpy())
-            if auc != -1 and acc != -1:
-                auc_test.append(auc)
-                acc_test.append(acc)
-            kt_test.append(loss_kt)
-            loss = loss_kt
-            if args.model == 'GKT' and args.graph_type == 'VAE':
-                loss_vae = vae_loss(ec_list, rec_list, z_prob_list)
-                loss_vae = float(loss_vae.cpu().detach().numpy())
-                vae_test.append(loss_vae)
-                loss = loss_kt + loss_vae
-            loss_test.append(loss)
-            del loss
-    print('--------------------------------')
-    print('--------Testing-----------------')
-    print('--------------------------------')
-    if args.model == 'GKT' and args.graph_type == 'VAE':
-        print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-              'kt_test: {:.10f}'.format(np.mean(kt_test)),
-              'vae_test: {:.10f}'.format(np.mean(vae_test)),
-              'auc_test: {:.10f}'.format(np.mean(auc_test)),
-              'acc_test: {:.10f}'.format(np.mean(acc_test)))
-    else:
-        print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-              'auc_test: {:.10f}'.format(np.mean(auc_test)),
-              'acc_test: {:.10f}'.format(np.mean(acc_test)))
-    if args.save_dir:
-        print('--------------------------------', file=log)
-        print('--------Testing-----------------', file=log)
-        print('--------------------------------', file=log)
-        if args.model == 'GKT' and args.graph_type == 'VAE':
-            print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-                  'kt_test: {:.10f}'.format(np.mean(kt_test)),
-                  'vae_test: {:.10f}'.format(np.mean(vae_test)),
-                  'auc_test: {:.10f}'.format(np.mean(auc_test)),
-                  'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
-            del kt_test
-            del vae_test
-        else:
-            print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-                  'auc_test: {:.10f}'.format(np.mean(auc_test)),
-                  'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
-        log.flush()
-    del loss_test
-    del auc_test
-    del acc_test
-    gc.collect()
-    if args.cuda:
-        torch.cuda.empty_cache()
+#     if graph_model is not None:
+#         graph_model.eval()
+#     model.eval()
+#     model.load_state_dict(torch.load(model_file))
+#     with torch.no_grad():
+#         for batch_idx, (features, questions, answers) in enumerate(test_loader):
+#             if args.cuda:
+#                 features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
+#             ec_list, rec_list, z_prob_list = None, None, None
+#             if args.model == 'GKT':
+#                 pred_res, ec_list, rec_list, z_prob_list = model(features, questions)
+#             elif args.model == 'DKT':
+#                 pred_res = model(features, questions)
+#             else:
+#                 raise NotImplementedError(args.model + ' model is not implemented!')
+#             loss_kt, auc, acc = kt_loss(pred_res, answers)
+#             loss_kt = float(loss_kt.cpu().detach().numpy())
+#             if auc != -1 and acc != -1:
+#                 auc_test.append(auc)
+#                 acc_test.append(acc)
+#             kt_test.append(loss_kt)
+#             loss = loss_kt
+#             if args.model == 'GKT' and args.graph_type == 'VAE':
+#                 loss_vae = vae_loss(ec_list, rec_list, z_prob_list)
+#                 loss_vae = float(loss_vae.cpu().detach().numpy())
+#                 vae_test.append(loss_vae)
+#                 loss = loss_kt + loss_vae
+#             loss_test.append(loss)
+#             del loss
+#     print('--------------------------------')
+#     print('--------Testing-----------------')
+#     print('--------------------------------')
+#     if args.model == 'GKT' and args.graph_type == 'VAE':
+#         print('loss_test: {:.10f}'.format(np.mean(loss_test)),
+#               'kt_test: {:.10f}'.format(np.mean(kt_test)),
+#               'vae_test: {:.10f}'.format(np.mean(vae_test)),
+#               'auc_test: {:.10f}'.format(np.mean(auc_test)),
+#               'acc_test: {:.10f}'.format(np.mean(acc_test)))
+#     else:
+#         print('loss_test: {:.10f}'.format(np.mean(loss_test)),
+#               'auc_test: {:.10f}'.format(np.mean(auc_test)),
+#               'acc_test: {:.10f}'.format(np.mean(acc_test)))
+#     if args.save_dir:
+#         print('--------------------------------', file=log)
+#         print('--------Testing-----------------', file=log)
+#         print('--------------------------------', file=log)
+#         if args.model == 'GKT' and args.graph_type == 'VAE':
+#             print('loss_test: {:.10f}'.format(np.mean(loss_test)),
+#                   'kt_test: {:.10f}'.format(np.mean(kt_test)),
+#                   'vae_test: {:.10f}'.format(np.mean(vae_test)),
+#                   'auc_test: {:.10f}'.format(np.mean(auc_test)),
+#                   'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
+#             del kt_test
+#             del vae_test
+#         else:
+#             print('loss_test: {:.10f}'.format(np.mean(loss_test)),
+#                   'auc_test: {:.10f}'.format(np.mean(auc_test)),
+#                   'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
+#         log.flush()
+#     del loss_test
+#     del auc_test
+#     del acc_test
+#     gc.collect()
+#     if args.cuda:
+#         torch.cuda.empty_cache()
+def test_with_mlflow():
+    with mlflow.start_run(nested=True) as run:
+        mlflow.set_tracking_uri(MLFLOW_SERVER_URI) # mlflow uri 설정
+        mlflow.set_experiment(EXPERIMENT_NAME)  # 실험 이름 설정
 
+        print('--------------------------------')
+        print('--------Testing mlflow----------')
+        print('--------------------------------')
+
+        loss_test = []
+        kt_test = []
+        vae_test = []
+        auc_test = []
+        acc_test = []
+
+        if graph_model is not None:
+            graph_model.eval()
+        model.eval()
+        model.load_state_dict(torch.load(model_file))
+
+        with torch.no_grad():
+            for batch_idx, (features, questions, answers) in enumerate(test_loader):
+                if args.cuda:
+                    features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
+
+                # 모델 예측
+                ec_list, rec_list, z_prob_list = None, None, None
+                if args.model == 'GKT':
+                    pred_res, ec_list, rec_list, z_prob_list = model(features, questions)
+                elif args.model == 'DKT':
+                    pred_res = model(features, questions)
+                else:
+                    raise NotImplementedError(args.model + ' model is not implemented!')
+
+                # 손실 및 성능 계산
+                loss_kt, auc, acc = kt_loss(pred_res, answers)
+                loss_kt = float(loss_kt.cpu().detach().numpy())
+                if auc != -1 and acc != -1:
+                    auc_test.append(auc)
+                    acc_test.append(acc)
+                kt_test.append(loss_kt)
+                loss = loss_kt
+
+                # VAE 손실 계산 (GKT 모델 + VAE 사용 시)
+                if args.model == 'GKT' and args.graph_type == 'VAE':
+                    loss_vae = vae_loss(ec_list, rec_list, z_prob_list)
+                    loss_vae = float(loss_vae.cpu().detach().numpy())
+                    vae_test.append(loss_vae)
+                    loss += loss_vae
+                loss_test.append(loss)
+
+        # 평균 손실 및 성능 계산
+        mean_loss_test = np.mean(loss_test)
+        mean_kt_test = np.mean(kt_test)
+        mean_auc_test = np.mean(auc_test)
+        mean_acc_test = np.mean(acc_test)
+        mean_vae_test = np.mean(vae_test) if vae_test else None
+
+        # MLflow에 결과 기록
+        mlflow.log_metric("loss_test", mean_loss_test)
+        mlflow.log_metric("auc_test", mean_auc_test)
+        mlflow.log_metric("acc_test", mean_acc_test)
+        if mean_vae_test:
+            mlflow.log_metric("vae_test", mean_vae_test)
+            mlflow.log_metric("kt_test", mean_kt_test)
+
+        # 결과 출력
+        print(f"loss_test: {mean_loss_test:.10f}",
+              f"auc_test: {mean_auc_test:.10f}",
+              f"acc_test: {mean_acc_test:.10f}")
+        if mean_vae_test:
+            print(f"vae_test: {mean_vae_test:.10f}")
+            print(f"kt_test: {mean_kt_test:.10f}")
+
+        # Slack 알림
+        message = f"테스트가 완료되었습니다.\nLoss: {mean_loss_test:.10f}, AUC: {mean_auc_test:.10f}, Accuracy: {mean_acc_test:.10f}"
+        if mean_vae_test:
+            message += f", VAE Loss: {mean_vae_test:.10f}"
+        send_slack_notification("테스트 완료", message)
+
+        # 모델 등록
+        artifact_uri = mlflow.get_artifact_uri("best_model")
+        register_model(run.info.run_id, artifact_uri, mean_acc_test)
+
+        # 로그 파일 기록
+        if args.save_dir:
+            print('--------------------------------', file=log)
+            print('--------Testing-----------------', file=log)
+            print('--------------------------------', file=log)
+            print(f"loss_test: {mean_loss_test:.10f}",
+                  f"kt_test: {mean_kt_test:.10f}",
+                  f"auc_test: {mean_auc_test:.10f}",
+                  f"acc_test: {mean_acc_test:.10f}", file=log)
+            if mean_vae_test:
+                print(f"vae_test: {mean_vae_test:.10f}", file=log)
+            log.flush()
+
+        # 자원 정리
+        del loss_test, kt_test, vae_test, auc_test, acc_test
+        gc.collect()
+        if args.cuda:
+            torch.cuda.empty_cache()
+
+# Slack 알림 함수 정의
 def send_slack_notification(status, message):
     """Slack 알림 전송"""
     if not SLACK_WEBHOOK_URL:
@@ -440,8 +543,10 @@ def send_slack_notification(status, message):
     except requests.exceptions.RequestException as e:
         print(f"Slack 알림 실패: {str(e)}")
 
+# 모델 등록 함수 정의
 def register_model(run_id, artifact_uri, accuracy):
     """MLflow 모델 레지스트리에 등록"""
+    MODEL_NAME = "GKT"  # 모델 이름 설정
     client = MlflowClient()
     try:
         client.create_registered_model(MODEL_NAME)
@@ -474,11 +579,13 @@ def register_model(run_id, artifact_uri, accuracy):
         raise
 
 
-if args.test is False:
-    # MLflow 설정
-    mlflow.set_experiment("Knowledge Tracing Experiment")  # 실험 이름 설정
+mlflow.set_tracking_uri(MLFLOW_SERVER_URI) # mlflow uri 설정
+mlflow.set_experiment(EXPERIMENT_NAME)  # 실험 이름 설정
 
-    with mlflow.start_run() as run:
+
+if args.test is False:
+
+    with mlflow.start_run(nested=True) as run:
         # MLflow에 파라미터 기록
         mlflow.log_params(vars(args))
 
@@ -487,18 +594,24 @@ if args.test is False:
         best_val_loss = np.inf
         best_epoch = 0
         for epoch in range(args.epochs):
-            val_loss = train(epoch, best_val_loss)
+            list = train(epoch, best_val_loss)
             
             # 에포크 결과를 MLflow에 기록
-            mlflow.log_metric("val_loss", val_loss, step=epoch)
+            mlflow.log_metric("loss_train", list[0], step=epoch)
+            mlflow.log_metric("auc_train", list[1], step=epoch)
+            mlflow.log_metric("acc_train", list[2], step=epoch)
+            mlflow.log_metric("loss_val", list[3], step=epoch)
+            mlflow.log_metric("auc_val", list[4], step=epoch)
+            mlflow.log_metric("acc_val", list[5], step=epoch)
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+
+            if list[3] < best_val_loss:
+                best_val_loss = list[3]
                 best_epoch = epoch
 
-                # 최적 모델을 MLflow에 저장
-                if args.save_dir:
-                    mlflow.pytorch.log_model(model, "best_model")
+                # # 최적 모델을 MLflow에 저장
+                # if args.save_dir:
+                #     mlflow.pytorch.log_model(model, "best_model")
 
         print("Optimization Finished!")
         print("Best Epoch: {:04d}".format(best_epoch))
@@ -514,59 +627,5 @@ if args.test is False:
             print("Best Epoch: {:04d}".format(best_epoch), file=log)
             log.flush()
 
-test()
+        test_with_mlflow()
 
-# 테스트 후 MLflow에 테스트 결과 기록
-if args.test:
-    with mlflow.start_run() as run:
-        print('--------------------------------')
-        print('--------Testing-----------------')
-        print('--------------------------------')
-
-        loss_test = []
-        auc_test = []
-        acc_test = []
-
-        if graph_model is not None:
-            graph_model.eval()
-        model.eval()
-        model.load_state_dict(torch.load(model_file))
-
-        with torch.no_grad():
-            for batch_idx, (features, questions, answers) in enumerate(test_loader):
-                if args.cuda:
-                    features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
-
-                pred_res = model(features, questions) if args.model == 'DKT' else model(features, questions)[0]
-                loss_kt, auc, acc = kt_loss(pred_res, answers)
-
-                loss_test.append(float(loss_kt.cpu().detach().numpy()))
-                if auc != -1 and acc != -1:
-                    auc_test.append(auc)
-                    acc_test.append(acc)
-
-        mean_loss_test = np.mean(loss_test)
-        mean_auc_test = np.mean(auc_test)
-        mean_acc_test = np.mean(acc_test)
-
-        # 테스트 결과를 MLflow에 기록
-        mlflow.log_metric("loss_test", mean_loss_test)
-        mlflow.log_metric("auc_test", mean_auc_test)
-        mlflow.log_metric("acc_test", mean_acc_test)
-
-        print(f"loss_test: {mean_loss_test:.10f}",
-              f"auc_test: {mean_auc_test:.10f}",
-              f"acc_test: {mean_acc_test:.10f}")
-
-        # Slack 알림: 테스트 완료
-        send_slack_notification("테스트 완료", f"테스트가 완료되었습니다.\nLoss: {mean_loss_test:.10f}, AUC: {mean_auc_test:.10f}, Accuracy: {mean_acc_test:.10f}")
-
-        # 모델 등록
-        artifact_uri = mlflow.get_artifact_uri("best_model")
-        register_model(run.info.run_id, artifact_uri, mean_acc_test)
-
-        if args.save_dir:
-            print(f"loss_test: {mean_loss_test:.10f}",
-                  f"auc_test: {mean_auc_test:.10f}",
-                  f"acc_test: {mean_acc_test:.10f}", file=log)
-            log.flush()

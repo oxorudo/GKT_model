@@ -64,8 +64,7 @@ def load_dataset(file_path, batch_size, graph_type, dkt_graph_path=None, train_r
 
     # if not (df['correct'].isin([0, 1])).all():
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
-
-    df = df.iloc[:300,:]
+    df = df.iloc[:301,:]
 
     # Step 1.1 - Remove questions without skill
     df.dropna(subset=['QuizCode'], inplace=True)
