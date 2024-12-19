@@ -88,6 +88,11 @@ print(args)
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+
+# CUDA가 사용 가능한지 확인
+cuda_available = torch.cuda.is_available()
+print(f"CUDA 사용 가능 여부: {cuda_available}")
+
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
