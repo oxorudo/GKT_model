@@ -28,13 +28,23 @@ class KTDataset(Dataset):
 
 
 def pad_collate(batch):
+    # (features, questions, answers) = zip(*batch)
+    # features = [torch.LongTensor(feat) for feat in features]
+    # questions = [torch.LongTensor(qt) for qt in questions]
+    # answers = [torch.LongTensor(ans) for ans in answers]
+    # feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
+    # question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
+    # answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
     (features, questions, answers) = zip(*batch)
     features = [torch.LongTensor(feat) for feat in features]
     questions = [torch.LongTensor(qt) for qt in questions]
     answers = [torch.LongTensor(ans) for ans in answers]
+
+    # 배치 내 가장 긴 시퀀스 길이에 맞춰 패딩
     feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
     question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
     answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
+
     return feature_pad, question_pad, answer_pad
 
 
@@ -64,7 +74,7 @@ def load_dataset(file_path, batch_size, graph_type, dkt_graph_path=None, train_r
 
     # if not (df['correct'].isin([0, 1])).all():
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
-    df = df.iloc[:1001,:]
+    df = df.iloc[:10001,:]
 
     # Step 1.1 - Remove questions without skill
     df.dropna(subset=['QuizCode'], inplace=True)
