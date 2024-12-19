@@ -155,7 +155,9 @@ kt_loss = KTLoss()
 
 # build optimizer
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_decay, gamma=args.gamma)
+scheduler = lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode='min', factor=args.gamma, patience=5, verbose=True, min_lr=1e-6
+)
 
 # load model/optimizer/scheduler params
 if args.load_dir:
@@ -175,7 +177,6 @@ if args.load_dir:
 
 # build optimizer
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_decay, gamma=args.gamma)
 
 if args.model == 'GKT' and args.prior:
     prior = np.array([0.91, 0.03, 0.03, 0.03])  # TODO: hard coded for now
@@ -239,10 +240,9 @@ def train(epoch, best_val_loss):
             loss = loss_kt
             print('batch idx: ', batch_idx, 'loss kt: ', loss_kt.item(), 'auc: ', auc, 'acc: ', acc, end=' ')
         loss_train.append(float(loss.cpu().detach().numpy()))
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
         del loss
         print('cost time: ', str(time.time() - t1))
 
@@ -341,6 +341,7 @@ def train(epoch, best_val_loss):
                   'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
     res = [np.mean(loss_train), np.mean(auc_train), np.mean(acc_train), np.mean(loss_val), np.mean(auc_val), np.mean(acc_val)]
+    scheduler.step(np.mean(loss_val))
     del loss_train
     del auc_train
     del acc_train
