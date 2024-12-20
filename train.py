@@ -78,7 +78,7 @@ parser.add_argument('--gamma', type=float, default=0.5, help='LR decay factor.')
 parser.add_argument('--test', type=bool, default=False, help='Whether to test for existed model.')
 parser.add_argument('--test-model-dir', type=str, default='logs/expDKT', help='Existed model file dir.')
 parser.add_argument('--max-users', type=int, default=None, help='유저수 제한')
-parser.add_argument('--max-seq', type=int, default=None, help='최근 풀이 시퀀스 길이이 제한')
+parser.add_argument('--max-seq', type=int, default=None, help='최근 풀이 시퀀스 길이 제한')
 
 
 

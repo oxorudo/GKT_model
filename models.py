@@ -94,7 +94,7 @@ class GKT(nn.Module):
         qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
         x_idx_mat = torch.arange(self.res_len * self.concept_num, device=xt.device)
         x_embedding = self.emb_x(x_idx_mat)  # [res_len * concept_num, embedding_dim]
-        masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat)  # [mask_num, res_len * concept_num]
+        masked_feat =masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat.to(xt.device))  # [mask_num, res_len * concept_num]
         res_embedding = masked_feat.mm(x_embedding)  # [mask_num, embedding_dim]
         mask_num = res_embedding.shape[0]
 
