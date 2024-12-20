@@ -211,7 +211,8 @@ class GKT(nn.Module):
         m_next[qt_mask] = self.erase_add_gate(m_next[qt_mask])  # [mask_num, concept_num, hidden_dim]
         # GRU
         h_next = m_next
-        res = self.gru(m_next[qt_mask].reshape(-1, self.hidden_dim), ht[qt_mask].reshape(-1, self.hidden_dim))  # [mask_num * concept_num, hidden_num]
+        # res = self.gru(m_next[qt_mask].reshape(-1, self.hidden_dim), ht[qt_mask].reshape(-1, self.hidden_dim))
+        res = self.gru(m_next[qt_mask].cpu().reshape(-1, self.hidden_dim), ht[qt_mask].cpu().reshape(-1, self.hidden_dim)).to(m_next.device) # [mask_num * concept_num, hidden_num]
         index_tuple = (torch.arange(mask_num, device=qt_mask.device), )
         h_next[qt_mask] = h_next[qt_mask].index_put(index_tuple, res.reshape(-1, self.concept_num, self.hidden_dim))
         return h_next, concept_embedding, rec_embedding, z_prob
