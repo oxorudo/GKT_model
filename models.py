@@ -46,8 +46,8 @@ class GKT(nn.Module):
             self.graph_model = graph_model
 
         # one-hot feature and question
-        one_hot_feat = torch.eye(self.res_len * self.concept_num)
-        self.one_hot_feat = one_hot_feat.cuda() if self.has_cuda else one_hot_feat
+        self.one_hot_feat = torch.eye(self.res_len * self.concept_num)
+        # self.one_hot_feat = one_hot_feat.cuda() if self.has_cuda else one_hot_feat
         self.one_hot_q = torch.eye(self.concept_num, device=self.one_hot_feat.device)
         zero_padding = torch.zeros(1, self.concept_num, device=self.one_hot_feat.device)
         self.one_hot_q = torch.cat((self.one_hot_q, zero_padding), dim=0)
@@ -94,7 +94,7 @@ class GKT(nn.Module):
         qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
         x_idx_mat = torch.arange(self.res_len * self.concept_num, device=xt.device)
         x_embedding = self.emb_x(x_idx_mat)  # [res_len * concept_num, embedding_dim]
-        masked_feat =masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat.to(xt.device))  # [mask_num, res_len * concept_num]
+        masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat.to(xt.device))  # [mask_num, res_len * concept_num]
         res_embedding = masked_feat.mm(x_embedding)  # [mask_num, embedding_dim]
         mask_num = res_embedding.shape[0]
 
