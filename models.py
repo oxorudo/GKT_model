@@ -247,9 +247,18 @@ class GKT(nn.Module):
         Return:
             pred: predicted correct probability of the question answered at the next timestamp
         """
+        # next_qt = q_next
+        # next_qt = torch.where(next_qt != -1, next_qt, self.concept_num * torch.ones_like(next_qt, device=yt.device))
+        # one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q)  # [batch_size, concept_num]
+        # # dot product between yt and one_hot_qt
+        # pred = (yt * one_hot_qt).sum(dim=1)  # [batch_size, ]
+        # return pred
         next_qt = q_next
         next_qt = torch.where(next_qt != -1, next_qt, self.concept_num * torch.ones_like(next_qt, device=yt.device))
-        one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q)  # [batch_size, concept_num]
+        
+        # Ensure one_hot_q is on the same device as next_qt
+        one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q.to(next_qt.device))  # Move to GPU if necessary
+        
         # dot product between yt and one_hot_qt
         pred = (yt * one_hot_qt).sum(dim=1)  # [batch_size, ]
         return pred
