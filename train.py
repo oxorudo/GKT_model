@@ -41,7 +41,7 @@ ACCURACY_THRESHOLD = 0.6  # 성능 검증 기준값
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--no-cuda', action='store_false', default=True, help='Disables CUDA training.')
+parser.add_argument('--no-cuda', action='store_false', default=False, help='Disables CUDA training.')
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--data-dir', type=str, default='data', help='Data dir for loading input data.')
 parser.add_argument('--data-file', type=str, default='filtered_combined_user_data.csv', help='Name of input data file.')
@@ -77,6 +77,9 @@ parser.add_argument('--lr-decay', type=int, default=200, help='After how epochs 
 parser.add_argument('--gamma', type=float, default=0.5, help='LR decay factor.')
 parser.add_argument('--test', type=bool, default=False, help='Whether to test for existed model.')
 parser.add_argument('--test-model-dir', type=str, default='logs/expDKT', help='Existed model file dir.')
+parser.add_argument('--max-users', type=int, default=None, help='유저수 제한')
+parser.add_argument('--max-seq', type=int, default=None, help='최근 풀이 시퀀스 길이이 제한')
+
 
 
 
@@ -133,7 +136,7 @@ dataset_path = os.path.join(args.data_dir, args.data_file)
 dkt_graph_path = os.path.join(args.dkt_graph_dir, args.dkt_graph)
 if not os.path.exists(dkt_graph_path):
     dkt_graph_path = None
-concept_num, graph, train_loader, valid_loader, test_loader = load_dataset(dataset_path, args.batch_size, args.graph_type, dkt_graph_path=dkt_graph_path,
+concept_num, graph, train_loader, valid_loader, test_loader = load_dataset(dataset_path, args.batch_size, args.graph_type, max_users=args.max_users, max_seq = args.max_seq, dkt_graph_path=dkt_graph_path,
                                                                            train_ratio=args.train_ratio, val_ratio=args.val_ratio, shuffle=args.shuffle,
                                                                            model_type=args.model, use_cuda=args.cuda)
 
@@ -442,6 +445,7 @@ def test_with_mlflow():
         # 모델 등록
         artifact_uri = mlflow.get_artifact_uri("best_model")
         register_model(run.info.run_id, artifact_uri, mean_acc_test)
+        mlflow.pytorch.log_model(model, "best_model")
 
         # 로그 파일 기록
         if args.save_dir:
@@ -542,10 +546,6 @@ if args.test is False:
             if list[3] < best_val_loss:
                 best_val_loss = list[3]
                 best_epoch = epoch
-
-                # # 최적 모델을 MLflow에 저장
-                # if args.save_dir:
-                #     mlflow.pytorch.log_model(model, "best_model")
 
         print("Optimization Finished!")
         print("Best Epoch: {:04d}".format(best_epoch))

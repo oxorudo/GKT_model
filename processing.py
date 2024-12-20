@@ -48,7 +48,7 @@ def pad_collate(batch):
     return feature_pad, question_pad, answer_pad
 
 
-def load_dataset(file_path, batch_size, graph_type, dkt_graph_path=None, train_ratio=0.7, val_ratio=0.2, shuffle=True, model_type='GKT', use_binary=True, res_len=2, use_cuda=True):
+def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_graph_path=None, train_ratio=0.7, val_ratio=0.2, shuffle=True, model_type='GKT', use_binary=True, res_len=2, use_cuda=True):
     r"""
     Parameters:
         file_path: input file path of knowledge tracing data
@@ -76,11 +76,27 @@ def load_dataset(file_path, batch_size, graph_type, dkt_graph_path=None, train_r
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
     df = df.iloc[0:10001,:]
 
+    # Step 0 - 정렬: 가장 오래된 기록부터 정렬
+    df.sort_values(by=["UserID", "CreDate"], inplace=True)  # "CreDate" 컬럼을 기준으로 정렬
+
     # Step 1.1 - Remove questions without skill
     df.dropna(subset=['QuizCode'], inplace=True)
 
     # Step 1.2 - Remove users with a single answer
     df = df.groupby('UserID').filter(lambda q: len(q) > 1).copy()
+
+    # Step 1.3 - 유저당 최근 1000개의 풀이 데이터만 유지
+    if max_seq is not None:
+        df = df.groupby('UserID').tail(max_seq).copy()
+
+
+    # Step 1 - 유저 제한
+    if max_users is not None:
+        unique_users = df['UserID'].unique()
+        if len(unique_users) > max_users:
+            selected_users = np.random.choice(unique_users, max_users, replace=False)
+            df = df[df['UserID'].isin(selected_users)]
+
 
     # Step 2 - Enumerate skill id
     df['skill'], _ = pd.factorize(df['QuizCode'], sort=True)  # we can also use problem_id to represent exercises
