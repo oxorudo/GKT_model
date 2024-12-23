@@ -46,8 +46,8 @@ class GKT(nn.Module):
             self.graph_model = graph_model
 
         # one-hot feature and question
-        self.one_hot_feat = torch.eye(self.res_len * self.concept_num)
-        # self.one_hot_feat = one_hot_feat.cuda() if self.has_cuda else one_hot_feat
+        one_hot_feat = torch.eye(self.res_len * self.concept_num)
+        self.one_hot_feat = one_hot_feat.cuda() if self.has_cuda else one_hot_feat
         self.one_hot_q = torch.eye(self.concept_num, device=self.one_hot_feat.device)
         zero_padding = torch.zeros(1, self.concept_num, device=self.one_hot_feat.device)
         self.one_hot_q = torch.cat((self.one_hot_q, zero_padding), dim=0)
@@ -91,28 +91,11 @@ class GKT(nn.Module):
         Return:
             tmp_ht: aggregation results of concept hidden knowledge state and concept(& response) embedding
         """
-        # qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
-        # x_idx_mat = torch.arange(self.res_len * self.concept_num, device=xt.device)
-        # x_embedding = self.emb_x(x_idx_mat)  # [res_len * concept_num, embedding_dim]
-        # masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat.to(xt.device))  # [mask_num, res_len * concept_num]
-        # res_embedding = masked_feat.mm(x_embedding)  # [mask_num, embedding_dim]
-        # mask_num = res_embedding.shape[0]
-
-        # concept_idx_mat = self.concept_num * torch.ones((batch_size, self.concept_num), device=xt.device).long()
-        # concept_idx_mat[qt_mask, :] = torch.arange(self.concept_num, device=xt.device)
-        # concept_embedding = self.emb_c(concept_idx_mat)  # [batch_size, concept_num, embedding_dim]
-
-        # index_tuple = (torch.arange(mask_num, device=xt.device), qt[qt_mask].long())
-        # concept_embedding[qt_mask] = concept_embedding[qt_mask].index_put(index_tuple, res_embedding)
-        # tmp_ht = torch.cat((ht, concept_embedding), dim=-1)  # [batch_size, concept_num, hidden_dim + embedding_dim]
-        # return tmp_ht
         qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
-
-        # Generate one-hot encoding dynamically for the current batch
-        x_one_hot = F.one_hot(xt[qt_mask].long(), num_classes=self.res_len * self.concept_num).float()
-        x_embedding = self.emb_x.weight  # Use embedding weights directly
-        res_embedding = x_one_hot @ x_embedding  # [mask_num, embedding_dim]
-
+        x_idx_mat = torch.arange(self.res_len * self.concept_num, device=xt.device)
+        x_embedding = self.emb_x(x_idx_mat)  # [res_len * concept_num, embedding_dim]
+        masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat)  # [mask_num, res_len * concept_num]
+        res_embedding = masked_feat.mm(x_embedding)  # [mask_num, embedding_dim]
         mask_num = res_embedding.shape[0]
 
         concept_idx_mat = self.concept_num * torch.ones((batch_size, self.concept_num), device=xt.device).long()
@@ -122,7 +105,7 @@ class GKT(nn.Module):
         index_tuple = (torch.arange(mask_num, device=xt.device), qt[qt_mask].long())
         concept_embedding[qt_mask] = concept_embedding[qt_mask].index_put(index_tuple, res_embedding)
         tmp_ht = torch.cat((ht, concept_embedding), dim=-1)  # [batch_size, concept_num, hidden_dim + embedding_dim]
-        return tmp_ht    
+        return tmp_ht
 
     # GNN aggregation step, as shown in 3.3.2 Equation 1 of the paper
     def _agg_neighbors(self, tmp_ht, qt):
@@ -211,8 +194,7 @@ class GKT(nn.Module):
         m_next[qt_mask] = self.erase_add_gate(m_next[qt_mask])  # [mask_num, concept_num, hidden_dim]
         # GRU
         h_next = m_next
-        # res = self.gru(m_next[qt_mask].reshape(-1, self.hidden_dim), ht[qt_mask].reshape(-1, self.hidden_dim))
-        res = self.gru(m_next[qt_mask].cpu().reshape(-1, self.hidden_dim), ht[qt_mask].cpu().reshape(-1, self.hidden_dim)).to(m_next.device) # [mask_num * concept_num, hidden_num]
+        res = self.gru(m_next[qt_mask].reshape(-1, self.hidden_dim), ht[qt_mask].reshape(-1, self.hidden_dim))  # [mask_num * concept_num, hidden_num]
         index_tuple = (torch.arange(mask_num, device=qt_mask.device), )
         h_next[qt_mask] = h_next[qt_mask].index_put(index_tuple, res.reshape(-1, self.concept_num, self.hidden_dim))
         return h_next, concept_embedding, rec_embedding, z_prob
@@ -248,18 +230,9 @@ class GKT(nn.Module):
         Return:
             pred: predicted correct probability of the question answered at the next timestamp
         """
-        # next_qt = q_next
-        # next_qt = torch.where(next_qt != -1, next_qt, self.concept_num * torch.ones_like(next_qt, device=yt.device))
-        # one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q)  # [batch_size, concept_num]
-        # # dot product between yt and one_hot_qt
-        # pred = (yt * one_hot_qt).sum(dim=1)  # [batch_size, ]
-        # return pred
         next_qt = q_next
         next_qt = torch.where(next_qt != -1, next_qt, self.concept_num * torch.ones_like(next_qt, device=yt.device))
-        
-        # Ensure one_hot_q is on the same device as next_qt
-        one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q.to(next_qt.device))  # Move to GPU if necessary
-        
+        one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q)  # [batch_size, concept_num]
         # dot product between yt and one_hot_qt
         pred = (yt * one_hot_qt).sum(dim=1)  # [batch_size, ]
         return pred
