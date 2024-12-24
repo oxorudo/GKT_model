@@ -40,16 +40,16 @@ def pad_collate(batch):
     questions = [torch.LongTensor(qt) for qt in questions]
     answers = [torch.LongTensor(ans) for ans in answers]
 
+    feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
+    question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
+    answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
+
     if torch.cuda.is_available():
         feature_pad = feature_pad.pin_memory().cuda(non_blocking=True)
         question_pad = question_pad.pin_memory().cuda(non_blocking=True)
         answer_pad = answer_pad.pin_memory().cuda(non_blocking=True)
         return feature_pad, question_pad, answer_pad
     else:
-            # 배치 내 가장 긴 시퀀스 길이에 맞춰 패딩
-        feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
-        question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
-        answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
         return feature_pad, question_pad, answer_pad
 
 
