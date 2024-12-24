@@ -298,7 +298,7 @@ class GKT(nn.Module):
             z_prob: probability distribution of latent variable z in VAE (optional)
         """
         batch_size, seq_len = features.shape
-        ht = torch.zeros((batch_size, self.concept_num, self.hidden_dim), device=features.device, pin_memory=True).cuda(non_blocking=True)
+        ht = torch.zeros((batch_size, self.concept_num, self.hidden_dim), device=features.device).cuda(non_blocking=True)
         pred_list = []
         ec_list = []  # concept embedding list in VAE
         rec_list = []  # reconstructed embedding list in VAE
