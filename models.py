@@ -142,12 +142,16 @@ class GKT(nn.Module):
         elif masked_tmp_ht.dim() < 2:
             raise ValueError("masked_tmp_ht has fewer dimensions than expected!")
 
-        # Ensure dimensions are compatible for repeat
-        try:
-            expanded_self_ht = masked_tmp_ht.repeat(1, self.concept_num, 1).cpu()
-        except RuntimeError as e:
-            raise RuntimeError(f"Dimension mismatch in repeat operation: {e}. "
-                            f"masked_tmp_ht.shape={masked_tmp_ht.shape}, concept_num={self.concept_num}")
+        # Split processing to avoid memory overflow
+        batch_size = 128  # Number of entries to process in a single batch
+        expanded_self_ht_list = []
+        for i in range(0, mask_num, batch_size):
+            batch_masked_tmp_ht = masked_tmp_ht[i:i+batch_size]  # Select a batch
+            expanded_batch_ht = batch_masked_tmp_ht.repeat(1, self.concept_num, 1)  # Repeat only for the batch
+            expanded_self_ht_list.append(expanded_batch_ht)
+
+        # Concatenate all batches back
+        expanded_self_ht = torch.cat(expanded_self_ht_list, dim=0).cpu()
 
         neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht.cpu()), dim=-1).to(self.device)
 
@@ -187,7 +191,6 @@ class GKT(nn.Module):
         m_next[qt_mask] = neigh_features
         m_next[qt_mask] = m_next[qt_mask].index_put(self_index_tuple, self_features)
         return m_next
-
 
 
 
