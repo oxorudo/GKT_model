@@ -28,29 +28,20 @@ class KTDataset(Dataset):
 
 
 def pad_collate(batch):
-    # (features, questions, answers) = zip(*batch)
-    # features = [torch.LongTensor(feat) for feat in features]
-    # questions = [torch.LongTensor(qt) for qt in questions]
-    # answers = [torch.LongTensor(ans) for ans in answers]
-    # feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
-    # question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
-    # answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
     (features, questions, answers) = zip(*batch)
-    features = [torch.LongTensor(feat) for feat in features]
-    questions = [torch.LongTensor(qt) for qt in questions]
-    answers = [torch.LongTensor(ans) for ans in answers]
+    features = [torch.LongTensor(feat).to(torch.device('cuda', index=0)) for feat in features]
+    questions = [torch.LongTensor(qt).to(torch.device('cuda', index=0)) for qt in questions]
+    answers = [torch.LongTensor(ans).to(torch.device('cuda', index=0)) for ans in answers]
 
+    # 패딩 처리
     feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
     question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
     answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
 
-    if torch.cuda.is_available():
-        feature_pad = feature_pad.cuda(non_blocking=True)
-        question_pad = question_pad.cuda(non_blocking=True)
-        answer_pad = answer_pad.cuda(non_blocking=True)
-        return feature_pad, question_pad, answer_pad
-    else:
-        return feature_pad, question_pad, answer_pad
+    # 데이터 위치 확인
+    print("Batch Data Locations:")
+    print(f"  Features: {feature_pad.device}, Questions: {question_pad.device}, Answers: {answer_pad.device}")
+    return feature_pad, question_pad, answer_pad
 
 
 def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_graph_path=None, train_ratio=0.7, val_ratio=0.2, shuffle=True, model_type='GKT', use_binary=True, res_len=2, use_cuda=True):
@@ -79,6 +70,7 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
 
     # if not (df['correct'].isin([0, 1])).all():
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
+    df = df.iloc[0:100000,:]
 
     # Step 0 - 정렬: 가장 오래된 기록부터 정렬
     df.sort_values(by=["UserID", "CreDate"], inplace=True)  # "CreDate" 컬럼을 기준으로 정렬

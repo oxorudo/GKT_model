@@ -45,16 +45,17 @@ class GKT(nn.Module):
                 assert graph_model is not None
             self.graph_model = graph_model
 
-        one_hot_feat = torch.eye(self.res_len * self.concept_num)
+        # one-hot feature and question
+        # One-hot feature 및 question 초기화
+        one_hot_feat = torch.eye(self.res_len * self.concept_num, device='cuda')
         self.one_hot_feat = one_hot_feat
-
-        one_hot_q = torch.eye(self.concept_num)
-        zero_padding = torch.zeros(1, self.concept_num)
-        self.one_hot_q = torch.cat((one_hot_q, zero_padding), dim=0)
-
-        if self.has_cuda:
-            self.one_hot_feat = self.one_hot_feat.cuda(non_blocking=True)
-            self.one_hot_q = self.one_hot_q.cuda(non_blocking=True)
+        self.one_hot_q = torch.eye(self.concept_num, device='cuda')
+        zero_padding = torch.zeros(1, self.concept_num, device='cuda')
+        self.one_hot_q = torch.cat((self.one_hot_q, zero_padding), dim=0)
+        # 데이터 위치 확인
+        print("One-hot Features and Questions initialized:")
+        print(f"  one_hot_feat: {self.one_hot_feat.device}")
+        print(f"  one_hot_q: {self.one_hot_q.device}")
         # concept and concept & response embeddings
         self.emb_x = nn.Embedding(self.res_len * concept_num, embedding_dim)
         # last embedding is used for padding, so dim + 1
@@ -298,7 +299,7 @@ class GKT(nn.Module):
             z_prob: probability distribution of latent variable z in VAE (optional)
         """
         batch_size, seq_len = features.shape
-        ht = torch.zeros((batch_size, self.concept_num, self.hidden_dim), device=features.device).cuda(non_blocking=True)
+        ht = Variable(torch.zeros((batch_size, self.concept_num, self.hidden_dim), device=features.device))
         pred_list = []
         ec_list = []  # concept embedding list in VAE
         rec_list = []  # reconstructed embedding list in VAE
