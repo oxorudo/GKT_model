@@ -117,9 +117,8 @@ class GKT(nn.Module):
         tmp_ht = torch.cat((ht.to(self.device), concept_embedding), dim=-1)
         return tmp_ht
 
-    # GNN aggregation step, as shown in 3.3.2 Equation 1 of the paper
     def _agg_neighbors(self, tmp_ht, qt):
-        r"""
+        """
         Parameters:
             tmp_ht: temporal hidden representations of all concepts after the aggregate step
             qt: question indices for all students in a batch at the current timestamp
@@ -137,18 +136,25 @@ class GKT(nn.Module):
         masked_tmp_ht = tmp_ht[qt_mask]  # [mask_num, concept_num, hidden_dim + embedding_dim]
         mask_num = masked_tmp_ht.shape[0]
 
-        # Ensure `masked_tmp_ht` has correct dimensions
+        # Ensure `masked_tmp_ht` has the correct dimensions
         if masked_tmp_ht.dim() == 2:
-            masked_tmp_ht = masked_tmp_ht.unsqueeze(dim=1)  # Add a dimension to make it [mask_num, 1, hidden_dim + embedding_dim]
+            masked_tmp_ht = masked_tmp_ht.unsqueeze(dim=1)  # Add a new dimension to make it [mask_num, 1, hidden_dim + embedding_dim]
+        elif masked_tmp_ht.dim() < 2:
+            raise ValueError("masked_tmp_ht has fewer dimensions than expected!")
 
         # Ensure dimensions are compatible for repeat
-        expanded_self_ht = masked_tmp_ht.unsqueeze(dim=1).repeat(1, self.concept_num, 1).cpu()
+        try:
+            expanded_self_ht = masked_tmp_ht.repeat(1, self.concept_num, 1).cpu()
+        except RuntimeError as e:
+            raise RuntimeError(f"Dimension mismatch in repeat operation: {e}. "
+                            f"masked_tmp_ht.shape={masked_tmp_ht.shape}, concept_num={self.concept_num}")
+
         neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht.cpu()), dim=-1).to(self.device)
-        
+
         self_index_tuple = (torch.arange(mask_num, device=qt.device), qt[qt_mask].long())
         self_ht = masked_tmp_ht[self_index_tuple]  # [mask_num, hidden_dim + embedding_dim]
         self_features = self.f_self(self_ht)  # [mask_num, hidden_dim]
-        
+
         # Update adjacency operations
         if self.graph_type in ['Dense', 'Transition', 'DKT', 'PAM']:
             adj = self.graph[qt[qt_mask].long(), :].unsqueeze(dim=-1).cpu()
