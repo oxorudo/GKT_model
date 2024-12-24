@@ -53,8 +53,8 @@ class GKT(nn.Module):
         self.one_hot_q = torch.cat((one_hot_q, zero_padding), dim=0)
 
         if self.has_cuda:
-            self.one_hot_feat = self.one_hot_feat.pin_memory().cuda(non_blocking=True)
-            self.one_hot_q = self.one_hot_q.pin_memory().cuda(non_blocking=True)
+            self.one_hot_feat = self.one_hot_feat.cuda(non_blocking=True)
+            self.one_hot_q = self.one_hot_q.cuda(non_blocking=True)
         # concept and concept & response embeddings
         self.emb_x = nn.Embedding(self.res_len * concept_num, embedding_dim)
         # last embedding is used for padding, so dim + 1

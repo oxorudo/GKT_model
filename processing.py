@@ -45,9 +45,9 @@ def pad_collate(batch):
     answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
 
     if torch.cuda.is_available():
-        feature_pad = feature_pad.pin_memory().cuda(non_blocking=True)
-        question_pad = question_pad.pin_memory().cuda(non_blocking=True)
-        answer_pad = answer_pad.pin_memory().cuda(non_blocking=True)
+        feature_pad = feature_pad.cuda(non_blocking=True)
+        question_pad = question_pad.cuda(non_blocking=True)
+        answer_pad = answer_pad.cuda(non_blocking=True)
         return feature_pad, question_pad, answer_pad
     else:
         return feature_pad, question_pad, answer_pad
@@ -149,9 +149,9 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(kt_dataset, [train_size, val_size, test_size])
     print('train_size: ', train_size, 'val_size: ', val_size, 'test_size: ', test_size)
 
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate, pin_memory=True)
-    valid_data_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate, pin_memory=True)
-    test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate, pin_memory=True)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate)
+    valid_data_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate)
+    test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate)
 
     graph = None
     if model_type == 'GKT':
