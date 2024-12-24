@@ -117,6 +117,7 @@ class GKT(nn.Module):
         tmp_ht = torch.cat((ht.to(self.device), concept_embedding), dim=-1)
         return tmp_ht
 
+    # GNN aggregation step, as shown in 3.3.2 Equation 1 of the paper
     def _agg_neighbors(self, tmp_ht, qt):
         r"""
         Parameters:
@@ -136,53 +137,50 @@ class GKT(nn.Module):
         masked_tmp_ht = tmp_ht[qt_mask]  # [mask_num, concept_num, hidden_dim + embedding_dim]
         mask_num = masked_tmp_ht.shape[0]
 
-        # Ensure dimensions are correct and expand for neighbors
-        if masked_tmp_ht.ndimension() == 2:
-            masked_tmp_ht = masked_tmp_ht.unsqueeze(1)  # Add missing dimension if needed
+        if len(masked_tmp_ht.shape) < 3:
+            masked_tmp_ht = masked_tmp_ht.unsqueeze(1)  # Ensure it has 3 dimensions
 
-        # CPU-based operations for expanded_self_ht and neigh_ht, then move to GPU
-        expanded_self_ht = masked_tmp_ht.unsqueeze(dim=1).repeat(1, self.concept_num, 1).cpu()  # Expand for neighbor aggregation
-        neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht.cpu()), dim=-1).to(self.device)  # Concatenate and move back to GPU
-
-        # Compute self features
-        self_index_tuple = (torch.arange(mask_num, device=self.device), qt[qt_mask].long())
+        # 수정: CPU에서 expanded_self_ht와 masked_tmp_ht 연산 후 GPU로 이동
+        expanded_self_ht = masked_tmp_ht.unsqueeze(dim=1).repeat(1, self.concept_num, 1).cpu()
+        neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht.cpu()), dim=-1).to(self.device)
+        
+        self_index_tuple = (torch.arange(mask_num, device=qt.device), qt[qt_mask].long())
         self_ht = masked_tmp_ht[self_index_tuple]  # [mask_num, hidden_dim + embedding_dim]
         self_features = self.f_self(self_ht)  # [mask_num, hidden_dim]
-
-        # Neighbor feature aggregation
-        concept_embedding, rec_embedding, z_prob = None, None, None
+        
+        # 수정: adj 연산 최적화
         if self.graph_type in ['Dense', 'Transition', 'DKT', 'PAM']:
-            adj = self.graph[qt[qt_mask].long(), :].unsqueeze(dim=-1).cpu()  # Move adj to CPU for operations
+            adj = self.graph[qt[qt_mask].long(), :].unsqueeze(dim=-1).cpu()
             neigh_features = adj * self.f_neighbor_list[0](neigh_ht)
         else:  # ['MHA', 'VAE']
-            concept_index = torch.arange(self.concept_num, device=self.device)
+            concept_index = torch.arange(self.concept_num, device=qt.device)
             concept_embedding = self.emb_c(concept_index)  # [concept_num, embedding_dim]
             if self.graph_type == 'MHA':
-                query = self.emb_c(qt[qt_mask])
+                query = self.emb_c(qt_mask)
                 key = concept_embedding
-                att_mask = Variable(torch.ones(self.edge_type_num, mask_num, self.concept_num, device=self.device))
+                att_mask = Variable(torch.ones(self.edge_type_num, mask_num, self.concept_num, device=qt.device))
                 for k in range(self.edge_type_num):
-                    index_tuple = (torch.arange(mask_num, device=self.device), qt[qt_mask].long())
-                    att_mask[k] = att_mask[k].index_put(index_tuple, torch.zeros(mask_num, device=self.device))
-                graphs = self.graph_model(qt[qt_mask], query, key, att_mask)
+                    index_tuple = (torch.arange(mask_num, device=qt.device), qt_mask.long())
+                    att_mask[k] = att_mask[k].index_put(index_tuple, torch.zeros(mask_num, device=qt.device))
+                graphs = self.graph_model(qt_mask, query, key, att_mask)
             else:  # self.graph_type == 'VAE'
-                sp_send, sp_rec, sp_send_t, sp_rec_t = self._get_edges(qt[qt_mask])
+                sp_send, sp_rec, sp_send_t, sp_rec_t = self._get_edges(qt_mask)
                 graphs, rec_embedding, z_prob = self.graph_model(concept_embedding, sp_send, sp_rec, sp_send_t, sp_rec_t)
             neigh_features = 0
             for k in range(self.edge_type_num):
-                adj = graphs[k][qt[qt_mask], :].unsqueeze(dim=-1).cpu()  # Move adj to CPU
+                adj = graphs[k][qt_mask, :].unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
                 if k == 0:
                     neigh_features = adj * self.f_neighbor_list[k](neigh_ht)
                 else:
                     neigh_features = neigh_features + adj * self.f_neighbor_list[k](neigh_ht)
             if self.graph_type == 'MHA':
                 neigh_features = 1. / self.edge_type_num * neigh_features
-
-        # Aggregate final features
-        m_next = tmp_ht[:, :, :self.hidden_dim].clone()
+        # neigh_features: [mask_num, concept_num, hidden_dim]
+        m_next = tmp_ht[:, :, :self.hidden_dim]
         m_next[qt_mask] = neigh_features
         m_next[qt_mask] = m_next[qt_mask].index_put(self_index_tuple, self_features)
-        return m_next, concept_embedding, rec_embedding, z_prob
+        return m_next
+
 
 
     # Update step, as shown in Section 3.3.2 of the paper
