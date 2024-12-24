@@ -23,7 +23,7 @@ class GKT(nn.Module):
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
         self.edge_type_num = edge_type_num
-        self.device = torch.device('cuda' if has_cuda else 'cpu')
+
         self.res_len = 2 if binary else 12
         self.has_cuda = has_cuda
 
@@ -45,80 +45,71 @@ class GKT(nn.Module):
                 assert graph_model is not None
             self.graph_model = graph_model
 
-    # 수정: one-hot 초기화를 지연 계산 방식으로 변경
-        self.one_hot_feat = None  # CPU에서 생성 후 필요 시 초기화
-        self.one_hot_q = None
-
-        # 임베딩 레이어
+        # one-hot feature and question
+        one_hot_feat = torch.eye(self.res_len * self.concept_num)
+        self.one_hot_feat = one_hot_feat.cuda() if self.has_cuda else one_hot_feat
+        self.one_hot_q = torch.eye(self.concept_num, device=self.one_hot_feat.device)
+        zero_padding = torch.zeros(1, self.concept_num, device=self.one_hot_feat.device)
+        self.one_hot_q = torch.cat((self.one_hot_q, zero_padding), dim=0)
+        # concept and concept & response embeddings
         self.emb_x = nn.Embedding(self.res_len * concept_num, embedding_dim)
+        # last embedding is used for padding, so dim + 1
         self.emb_c = nn.Embedding(concept_num + 1, embedding_dim, padding_idx=-1)
 
-        # MLP와 게이트
+        # f_self function and f_neighbor functions
         mlp_input_dim = hidden_dim + embedding_dim
         self.f_self = MLP(mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias)
         self.f_neighbor_list = nn.ModuleList()
         if graph_type in ['Dense', 'Transition', 'DKT', 'PAM']:
+            # f_in and f_out functions
             self.f_neighbor_list.append(MLP(2 * mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias))
             self.f_neighbor_list.append(MLP(2 * mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias))
-        else:
-            for _ in range(edge_type_num):
+        else:  # ['MHA', 'VAE']
+            for i in range(edge_type_num):
                 self.f_neighbor_list.append(MLP(2 * mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias))
 
-        # Erase & Add Gate와 GRU
+        # Erase & Add Gate
         self.erase_add_gate = EraseAddGate(hidden_dim, concept_num)
+        # Gate Recurrent Unit
         self.gru = nn.GRUCell(hidden_dim, hidden_dim, bias=bias)
+        # prediction layer
         self.predict = nn.Linear(hidden_dim, 1, bias=bias)
 
-        # GPU 사용 여부 확인
-        print(f"Model initialized on {'CUDA' if has_cuda else 'CPU'}")
-
-    def get_one_hot_feat(self):
-        """
-        필요 시 CPU에서 one-hot 텐서를 생성하여 반환
-        """
-        if self.one_hot_feat is None:
-            print("Initializing one-hot features on CPU.")
-            self.one_hot_feat = torch.eye(self.res_len * self.concept_num, device='cpu')
-            self.one_hot_q = torch.cat(
-                (torch.eye(self.concept_num, device='cpu'), torch.zeros(1, self.concept_num, device='cpu')), dim=0
-            )
-        return self.one_hot_feat
-
+    # Aggregate step, as shown in Section 3.2.1 of the paper
     def _aggregate(self, xt, qt, ht, batch_size):
-        """
+        r"""
         Parameters:
             xt: input one-hot question answering features at the current timestamp
             qt: question indices for all students in a batch at the current timestamp
             ht: hidden representations of all concepts at the current timestamp
             batch_size: the size of a student batch
+        Shape:
+            xt: [batch_size]
+            qt: [batch_size]
+            ht: [batch_size, concept_num, hidden_dim]
+            tmp_ht: [batch_size, concept_num, hidden_dim + embedding_dim]
         Return:
             tmp_ht: aggregation results of concept hidden knowledge state and concept(& response) embedding
         """
         qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
-        
-        # 수정: 지연 초기화된 one_hot_feat 사용
-        one_hot_feat = self.get_one_hot_feat()
-        
-        x_idx_mat = torch.arange(self.res_len * self.concept_num, device=self.emb_x.weight.device)
+        x_idx_mat = torch.arange(self.res_len * self.concept_num, device=xt.device)
         x_embedding = self.emb_x(x_idx_mat)  # [res_len * concept_num, embedding_dim]
-        
-        # 수정: masked_feat 생성 시 CPU 사용 후 결과를 GPU로 이동
-        masked_feat = F.embedding(xt[qt_mask].cpu(), one_hot_feat)
-        res_embedding = masked_feat.mm(x_embedding.cpu()).to(self.device)
-        
-        concept_idx_mat = self.concept_num * torch.ones((batch_size, self.concept_num), device='cpu').long()
-        concept_idx_mat[qt_mask, :] = torch.arange(self.concept_num, device='cpu')
-        concept_embedding = self.emb_c(concept_idx_mat.to(self.device))  # [batch_size, concept_num, embedding_dim]
-        
-        index_tuple = (torch.arange(res_embedding.shape[0], device=self.device), qt[qt_mask].long())
+        masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat)  # [mask_num, res_len * concept_num]
+        res_embedding = masked_feat.mm(x_embedding)  # [mask_num, embedding_dim]
+        mask_num = res_embedding.shape[0]
+
+        concept_idx_mat = self.concept_num * torch.ones((batch_size, self.concept_num), device=xt.device).long()
+        concept_idx_mat[qt_mask, :] = torch.arange(self.concept_num, device=xt.device)
+        concept_embedding = self.emb_c(concept_idx_mat)  # [batch_size, concept_num, embedding_dim]
+
+        index_tuple = (torch.arange(mask_num, device=xt.device), qt[qt_mask].long())
         concept_embedding[qt_mask] = concept_embedding[qt_mask].index_put(index_tuple, res_embedding)
-        
-        # 수정: ht를 GPU로 이동하여 concat 수행
-        tmp_ht = torch.cat((ht.to(self.device), concept_embedding), dim=-1)
+        tmp_ht = torch.cat((ht, concept_embedding), dim=-1)  # [batch_size, concept_num, hidden_dim + embedding_dim]
         return tmp_ht
 
+    # GNN aggregation step, as shown in 3.3.2 Equation 1 of the paper
     def _agg_neighbors(self, tmp_ht, qt):
-        """
+        r"""
         Parameters:
             tmp_ht: temporal hidden representations of all concepts after the aggregate step
             qt: question indices for all students in a batch at the current timestamp
@@ -133,53 +124,38 @@ class GKT(nn.Module):
             z_prob: probability distribution of latent variable z in VAE (optional)
         """
         qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
+        masked_qt = qt[qt_mask]  # [mask_num, ]
         masked_tmp_ht = tmp_ht[qt_mask]  # [mask_num, concept_num, hidden_dim + embedding_dim]
         mask_num = masked_tmp_ht.shape[0]
-
-        # Ensure `masked_tmp_ht` has the correct dimensions
-        if masked_tmp_ht.dim() == 2:
-            masked_tmp_ht = masked_tmp_ht.unsqueeze(dim=1)  # Add a new dimension to make it [mask_num, 1, hidden_dim + embedding_dim]
-        elif masked_tmp_ht.dim() < 2:
-            raise ValueError("masked_tmp_ht has fewer dimensions than expected!")
-
-        # Split processing to avoid memory overflow
-        batch_size = 128  # Number of entries to process in a single batch
-        expanded_self_ht_list = []
-        for i in range(0, mask_num, batch_size):
-            batch_masked_tmp_ht = masked_tmp_ht[i:i+batch_size]  # Select a batch
-            expanded_batch_ht = batch_masked_tmp_ht.repeat(1, self.concept_num, 1)  # Repeat only for the batch
-            expanded_self_ht_list.append(expanded_batch_ht)
-
-        # Concatenate all batches back
-        expanded_self_ht = torch.cat(expanded_self_ht_list, dim=0).cpu()
-
-        neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht.cpu()), dim=-1).to(self.device)
-
-        self_index_tuple = (torch.arange(mask_num, device=qt.device), qt[qt_mask].long())
+        self_index_tuple = (torch.arange(mask_num, device=qt.device), masked_qt.long())
         self_ht = masked_tmp_ht[self_index_tuple]  # [mask_num, hidden_dim + embedding_dim]
         self_features = self.f_self(self_ht)  # [mask_num, hidden_dim]
+        expanded_self_ht = self_ht.unsqueeze(dim=1).repeat(1, self.concept_num, 1)  #[mask_num, concept_num, hidden_dim + embedding_dim]
+        neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht), dim=-1)  #[mask_num, concept_num, 2 * (hidden_dim + embedding_dim)]
+        concept_embedding, rec_embedding, z_prob = None, None, None
 
-        # Update adjacency operations
         if self.graph_type in ['Dense', 'Transition', 'DKT', 'PAM']:
-            adj = self.graph[qt[qt_mask].long(), :].unsqueeze(dim=-1).cpu()
-            neigh_features = adj * self.f_neighbor_list[0](neigh_ht)
+            adj = self.graph[masked_qt.long(), :].unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
+            reverse_adj = self.graph[:, masked_qt.long()].transpose(0, 1).unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
+            # self.f_neighbor_list[0](neigh_ht) shape: [mask_num, concept_num, hidden_dim]
+            neigh_features = adj * self.f_neighbor_list[0](neigh_ht) + reverse_adj * self.f_neighbor_list[1](neigh_ht)
         else:  # ['MHA', 'VAE']
             concept_index = torch.arange(self.concept_num, device=qt.device)
             concept_embedding = self.emb_c(concept_index)  # [concept_num, embedding_dim]
             if self.graph_type == 'MHA':
-                query = self.emb_c(qt_mask)
+                query = self.emb_c(masked_qt)
                 key = concept_embedding
                 att_mask = Variable(torch.ones(self.edge_type_num, mask_num, self.concept_num, device=qt.device))
                 for k in range(self.edge_type_num):
-                    index_tuple = (torch.arange(mask_num, device=qt.device), qt_mask.long())
+                    index_tuple = (torch.arange(mask_num, device=qt.device), masked_qt.long())
                     att_mask[k] = att_mask[k].index_put(index_tuple, torch.zeros(mask_num, device=qt.device))
-                graphs = self.graph_model(qt_mask, query, key, att_mask)
+                graphs = self.graph_model(masked_qt, query, key, att_mask)
             else:  # self.graph_type == 'VAE'
-                sp_send, sp_rec, sp_send_t, sp_rec_t = self._get_edges(qt_mask)
+                sp_send, sp_rec, sp_send_t, sp_rec_t = self._get_edges(masked_qt)
                 graphs, rec_embedding, z_prob = self.graph_model(concept_embedding, sp_send, sp_rec, sp_send_t, sp_rec_t)
             neigh_features = 0
             for k in range(self.edge_type_num):
-                adj = graphs[k][qt_mask, :].unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
+                adj = graphs[k][masked_qt, :].unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
                 if k == 0:
                     neigh_features = adj * self.f_neighbor_list[k](neigh_ht)
                 else:
@@ -190,11 +166,7 @@ class GKT(nn.Module):
         m_next = tmp_ht[:, :, :self.hidden_dim]
         m_next[qt_mask] = neigh_features
         m_next[qt_mask] = m_next[qt_mask].index_put(self_index_tuple, self_features)
-        return m_next
-
-
-
-
+        return m_next, concept_embedding, rec_embedding, z_prob
 
     # Update step, as shown in Section 3.3.2 of the paper
     def _update(self, tmp_ht, ht, qt):
@@ -364,55 +336,53 @@ class MultiHeadAttention(nn.Module):
         self.graphs.requires_grad = False
 
     def _get_graph(self, attn_score, qt):
-        """
+        r"""
         Parameters:
             attn_score: attention score of all queries
             qt: masked question index
+        Shape:
+            attn_score: [n_head, mask_num, concept_num]
+            qt: [mask_num]
         Return:
             graphs: n_head types of inferred graphs
         """
-        # 수정: 그래프를 CPU에서 생성하고 float16으로 저장
-        graphs = torch.zeros(self.n_head, self.concept_num, self.concept_num, device='cpu', dtype=torch.float16)
-
+        graphs = Variable(torch.zeros(self.n_head, self.concept_num, self.concept_num, device=qt.device))
         for k in range(self.n_head):
-            attn_score_k = attn_score[k].detach().cpu().to(dtype=torch.float16)
             index_tuple = (qt.long(), )
-            graphs[k] = graphs[k].index_put(index_tuple, attn_score_k)
-            
-            # 수정: self.graphs도 CPU에서 관리
-            self.graphs.data[k] = self.graphs.data[k].to(dtype=torch.float16)
-            self.graphs.data[k] = self.graphs.data[k].index_put(index_tuple, attn_score_k)
-        
-        # GPU로 이동
-        return graphs.to(attn_score.device)
+            graphs[k] = graphs[k].index_put(index_tuple, attn_score[k])  # used for calculation
+            #############################
+            # here, we need to detach edges when storing it into self.graphs in case memory leak!
+            self.graphs.data[k] = self.graphs.data[k].index_put(index_tuple, attn_score[k].detach())  # used for saving and visualization
+            #############################
+        return graphs
 
-
-    def forward(self, features, questions):
-        """
+    def forward(self, qt, query, key, mask=None):
+        r"""
         Parameters:
-            features: input one-hot matrix
-            questions: question index matrix
+            qt: masked question index
+            query: answered concept embedding for a student batch
+            key: concept embedding matrix
+            mask: mask matrix
+        Shape:
+            qt: [mask_num]
+            query: [mask_num, embedding_dim]
+            key: [concept_num, embedding_dim]
         Return:
-            pred_res: the correct probability of questions answered at the next timestamp
+            graphs: n_head types of inferred graphs
         """
-        batch_size, seq_len = features.shape
-        ht = Variable(torch.zeros((batch_size, self.concept_num, self.hidden_dim), device='cpu'))  # 수정: 초기화 시 CPU 사용
-        pred_list = []
+        d_k, n_head = self.d_k, self.n_head
+        len_q, len_k = query.size(0), key.size(0)
 
-        for i in range(seq_len):
-            xt = features[:, i]  # [batch_size]
-            qt = questions[:, i]  # [batch_size]
-            
-            # 수정: CPU에서 tmp_ht 계산 후 GPU로 이동
-            tmp_ht = self._aggregate(xt.cpu(), qt.cpu(), ht.cpu(), batch_size).to(self.device)
-            h_next, _, _, _ = self._update(tmp_ht, ht.to(self.device), qt)
-            ht = h_next.to('cpu')  # 수정: 연산 후 다시 CPU로 이동
+        # Pass through the pre-attention projection: lq x (n_head *dk)
+        # Separate different heads: lq x n_head x dk
+        q = self.w_qs(query).view(len_q, n_head, d_k)
+        k = self.w_ks(key).view(len_k, n_head, d_k)
 
-            yt = self._predict(h_next, qt)
-            if i < seq_len - 1:
-                pred_list.append(self._get_next_pred(yt, questions[:, i + 1]))
-
-        return torch.stack(pred_list, dim=1)
+        # Transpose for attention dot product: n_head x lq x dk
+        q, k = q.transpose(0, 1), k.transpose(0, 1)
+        attn_score = self.attention(q, k, mask=mask)  # [n_head, mask_num, concept_num]
+        graphs = self._get_graph(attn_score, qt)
+        return graphs
 
 
 class VAE(nn.Module):
