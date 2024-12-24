@@ -137,14 +137,11 @@ class GKT(nn.Module):
         masked_tmp_ht = tmp_ht[qt_mask]  # [mask_num, concept_num, hidden_dim + embedding_dim]
         mask_num = masked_tmp_ht.shape[0]
 
-        if len(masked_tmp_ht.shape) < 3:
-            masked_tmp_ht = masked_tmp_ht.unsqueeze(1)  # Ensure it has 3 dimensions
+        # 수정: `masked_tmp_ht`의 차원이 3이 되도록 보장
+        if masked_tmp_ht.dim() < 3:
+            masked_tmp_ht = masked_tmp_ht.unsqueeze(dim=1)  # Ensure it has 3 dimensions
 
         # Ensure dimensions are compatible for repeat
-        if masked_tmp_ht.dim() == 2:
-            masked_tmp_ht = masked_tmp_ht.unsqueeze(1)  # Add missing dimension
-
-        # 수정: CPU에서 expanded_self_ht와 masked_tmp_ht 연산 후 GPU로 이동
         expanded_self_ht = masked_tmp_ht.unsqueeze(dim=1).repeat(1, self.concept_num, 1).cpu()
         neigh_ht = torch.cat((expanded_self_ht, masked_tmp_ht.cpu()), dim=-1).to(self.device)
         
@@ -184,6 +181,7 @@ class GKT(nn.Module):
         m_next[qt_mask] = neigh_features
         m_next[qt_mask] = m_next[qt_mask].index_put(self_index_tuple, self_features)
         return m_next
+
 
 
 
