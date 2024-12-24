@@ -23,7 +23,7 @@ class GKT(nn.Module):
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
         self.edge_type_num = edge_type_num
-
+        self.device = torch.device('cuda' if has_cuda else 'cpu')
         self.res_len = 2 if binary else 12
         self.has_cuda = has_cuda
 
@@ -153,19 +153,19 @@ class GKT(nn.Module):
             concept_index = torch.arange(self.concept_num, device=qt.device)
             concept_embedding = self.emb_c(concept_index)  # [concept_num, embedding_dim]
             if self.graph_type == 'MHA':
-                query = self.emb_c(masked_qt)
+                query = self.emb_c(qt_mask)
                 key = concept_embedding
                 att_mask = Variable(torch.ones(self.edge_type_num, mask_num, self.concept_num, device=qt.device))
                 for k in range(self.edge_type_num):
-                    index_tuple = (torch.arange(mask_num, device=qt.device), masked_qt.long())
+                    index_tuple = (torch.arange(mask_num, device=qt.device), qt_mask.long())
                     att_mask[k] = att_mask[k].index_put(index_tuple, torch.zeros(mask_num, device=qt.device))
-                graphs = self.graph_model(masked_qt, query, key, att_mask)
+                graphs = self.graph_model(qt_mask, query, key, att_mask)
             else:  # self.graph_type == 'VAE'
-                sp_send, sp_rec, sp_send_t, sp_rec_t = self._get_edges(masked_qt)
+                sp_send, sp_rec, sp_send_t, sp_rec_t = self._get_edges(qt_mask)
                 graphs, rec_embedding, z_prob = self.graph_model(concept_embedding, sp_send, sp_rec, sp_send_t, sp_rec_t)
             neigh_features = 0
             for k in range(self.edge_type_num):
-                adj = graphs[k][masked_qt, :].unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
+                adj = graphs[k][qt_mask, :].unsqueeze(dim=-1)  # [mask_num, concept_num, 1]
                 if k == 0:
                     neigh_features = adj * self.f_neighbor_list[k](neigh_ht)
                 else:
