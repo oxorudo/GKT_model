@@ -46,9 +46,8 @@ class GKT(nn.Module):
             self.graph_model = graph_model
 
         # one-hot feature and question
-        if self.has_cuda:
-            self.one_hot_feat = self.one_hot_feat.pin_memory().cuda(non_blocking=True)
-            self.one_hot_q = self.one_hot_q.pin_memory().cuda(non_blocking=True)
+        self.one_hot_feat = self.one_hot_feat.pin_memory().cuda(non_blocking=True)
+        self.one_hot_q = self.one_hot_q.pin_memory().cuda(non_blocking=True)
         self.one_hot_q = torch.eye(self.concept_num, device=self.one_hot_feat.device)
         zero_padding = torch.zeros(1, self.concept_num, device=self.one_hot_feat.device)
         self.one_hot_q = torch.cat((self.one_hot_q, zero_padding), dim=0)
