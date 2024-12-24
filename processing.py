@@ -74,7 +74,6 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
 
     # if not (df['correct'].isin([0, 1])).all():
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
-    df = df.iloc[0:10001,:]
 
     # Step 0 - 정렬: 가장 오래된 기록부터 정렬
     df.sort_values(by=["UserID", "CreDate"], inplace=True)  # "CreDate" 컬럼을 기준으로 정렬
