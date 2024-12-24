@@ -233,11 +233,9 @@ class GKT(nn.Module):
         Return:
             pred: predicted correct probability of the question answered at the next timestamp
         """
-        next_qt = q_next
-        next_qt = torch.where(next_qt != -1, next_qt, self.concept_num * torch.ones_like(next_qt, device=yt.device))
-        one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q)  # [batch_size, concept_num]
-        # dot product between yt and one_hot_qt
-        pred = (yt * one_hot_qt).sum(dim=1)  # [batch_size, ]
+        next_qt = torch.where(q_next != -1, q_next, self.concept_num * torch.ones_like(q_next, device=yt.device))
+        one_hot_qt = self.one_hot_dynamic(next_qt.long(), self.concept_num + 1)  # 동적으로 원핫 생성
+        pred = (yt * one_hot_qt[:, :-1]).sum(dim=1)  # [batch_size]
         return pred
 
     # Get edges for edge inference in VAE

@@ -35,8 +35,8 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 print("MLFLOW_SERVER_URI:", MLFLOW_SERVER_URI)
 print("SLACK_WEBHOOK_URL:", SLACK_WEBHOOK_URL)
 
-EXPERIMENT_NAME = "GKT testing"
-MODEL_NAME = "GKT"
+EXPERIMENT_NAME = "GKT testing_plus"
+MODEL_NAME = "GKT+"
 ACCURACY_THRESHOLD = 0.7  # 성능 검증 기준값
 
 
@@ -484,7 +484,7 @@ def send_slack_notification(status, message):
 # 모델 등록 함수 정의
 def register_model(run_id, artifact_uri, accuracy):
     """MLflow 모델 레지스트리에 등록"""
-    MODEL_NAME = "GKT"  # 모델 이름 설정
+    MODEL_NAME = "GKT+"  # 모델 이름 설정
     client = MlflowClient()
     try:
         client.create_registered_model(MODEL_NAME)
