@@ -15,12 +15,8 @@ from utils import gumbel_softmax
 # Email: jhljx8918@gmail.com
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-
 class GKT(nn.Module):
+
     def __init__(self, concept_num, hidden_dim, embedding_dim, edge_type_num, graph_type, graph=None, graph_model=None, dropout=0.5, bias=True, binary=False, has_cuda=False):
         super(GKT, self).__init__()
         self.concept_num = concept_num
@@ -30,7 +26,6 @@ class GKT(nn.Module):
 
         self.res_len = 2 if binary else 12
         self.has_cuda = has_cuda
-        self.device = torch.device("cuda" if has_cuda else "cpu")
 
         assert graph_type in ['Dense', 'Transition', 'DKT', 'PAM', 'MHA', 'VAE']
         self.graph_type = graph_type
@@ -50,11 +45,16 @@ class GKT(nn.Module):
                 assert graph_model is not None
             self.graph_model = graph_model
 
-        # 원핫 인코딩 행렬을 미리 생성하지 않음
-        print("One-hot vectors will be generated dynamically.")
-
+        # one-hot feature and question
+        if self.has_cuda:
+            self.one_hot_feat = self.one_hot_feat.pin_memory().cuda(non_blocking=True)
+            self.one_hot_q = self.one_hot_q.pin_memory().cuda(non_blocking=True)
+        self.one_hot_q = torch.eye(self.concept_num, device=self.one_hot_feat.device)
+        zero_padding = torch.zeros(1, self.concept_num, device=self.one_hot_feat.device)
+        self.one_hot_q = torch.cat((self.one_hot_q, zero_padding), dim=0)
         # concept and concept & response embeddings
         self.emb_x = nn.Embedding(self.res_len * concept_num, embedding_dim)
+        # last embedding is used for padding, so dim + 1
         self.emb_c = nn.Embedding(concept_num + 1, embedding_dim, padding_idx=-1)
 
         # f_self function and f_neighbor functions
@@ -62,6 +62,7 @@ class GKT(nn.Module):
         self.f_self = MLP(mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias)
         self.f_neighbor_list = nn.ModuleList()
         if graph_type in ['Dense', 'Transition', 'DKT', 'PAM']:
+            # f_in and f_out functions
             self.f_neighbor_list.append(MLP(2 * mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias))
             self.f_neighbor_list.append(MLP(2 * mlp_input_dim, hidden_dim, hidden_dim, dropout=dropout, bias=bias))
         else:  # ['MHA', 'VAE']
@@ -75,32 +76,29 @@ class GKT(nn.Module):
         # prediction layer
         self.predict = nn.Linear(hidden_dim, 1, bias=bias)
 
-    def one_hot_dynamic(self, indices, depth):
-        """
-        동적으로 원핫 벡터를 생성하는 함수
-        Args:
-            indices: [batch_size, ...] 원핫 인코딩할 인덱스
-            depth: 클래스 수
-        Returns:
-            원핫 인코딩된 텐서
-        """
-        batch_size = indices.size(0)
-        one_hot = torch.zeros(batch_size, depth, device=self.device)
-        one_hot.scatter_(1, indices.unsqueeze(1), 1)
-        return one_hot
-
+    # Aggregate step, as shown in Section 3.2.1 of the paper
     def _aggregate(self, xt, qt, ht, batch_size):
         r"""
-        Aggregate step: 개념 상태와 응답 임베딩을 결합.
+        Parameters:
+            xt: input one-hot question answering features at the current timestamp
+            qt: question indices for all students in a batch at the current timestamp
+            ht: hidden representations of all concepts at the current timestamp
+            batch_size: the size of a student batch
+        Shape:
+            xt: [batch_size]
+            qt: [batch_size]
+            ht: [batch_size, concept_num, hidden_dim]
+            tmp_ht: [batch_size, concept_num, hidden_dim + embedding_dim]
+        Return:
+            tmp_ht: aggregation results of concept hidden knowledge state and concept(& response) embedding
         """
         qt_mask = torch.ne(qt, -1)  # [batch_size], qt != -1
-        x_embedding = self.emb_x(torch.arange(self.res_len * self.concept_num, device=xt.device))  # [res_len * concept_num, embedding_dim]
-
-        # 동적으로 필요한 원핫 벡터 생성
-        masked_feat = self.one_hot_dynamic(xt[qt_mask], self.res_len * self.concept_num)
+        x_idx_mat = torch.arange(self.res_len * self.concept_num, device=xt.device)
+        x_embedding = self.emb_x(x_idx_mat)  # [res_len * concept_num, embedding_dim]
+        masked_feat = F.embedding(xt[qt_mask], self.one_hot_feat)  # [mask_num, res_len * concept_num]
         res_embedding = masked_feat.mm(x_embedding)  # [mask_num, embedding_dim]
-
         mask_num = res_embedding.shape[0]
+
         concept_idx_mat = self.concept_num * torch.ones((batch_size, self.concept_num), device=xt.device).long()
         concept_idx_mat[qt_mask, :] = torch.arange(self.concept_num, device=xt.device)
         concept_embedding = self.emb_c(concept_idx_mat)  # [batch_size, concept_num, embedding_dim]
@@ -233,9 +231,11 @@ class GKT(nn.Module):
         Return:
             pred: predicted correct probability of the question answered at the next timestamp
         """
-        next_qt = torch.where(q_next != -1, q_next, self.concept_num * torch.ones_like(q_next, device=yt.device))
-        one_hot_qt = self.one_hot_dynamic(next_qt.long(), self.concept_num + 1)  # 동적으로 원핫 생성
-        pred = (yt * one_hot_qt[:, :-1]).sum(dim=1)  # [batch_size]
+        next_qt = q_next
+        next_qt = torch.where(next_qt != -1, next_qt, self.concept_num * torch.ones_like(next_qt, device=yt.device))
+        one_hot_qt = F.embedding(next_qt.long(), self.one_hot_q)  # [batch_size, concept_num]
+        # dot product between yt and one_hot_qt
+        pred = (yt * one_hot_qt).sum(dim=1)  # [batch_size, ]
         return pred
 
     # Get edges for edge inference in VAE
@@ -295,7 +295,7 @@ class GKT(nn.Module):
             z_prob: probability distribution of latent variable z in VAE (optional)
         """
         batch_size, seq_len = features.shape
-        ht = Variable(torch.zeros((batch_size, self.concept_num, self.hidden_dim), device=features.device))
+        ht = torch.zeros((batch_size, self.concept_num, self.hidden_dim), device=features.device, pin_memory=True).cuda(non_blocking=True)
         pred_list = []
         ec_list = []  # concept embedding list in VAE
         rec_list = []  # reconstructed embedding list in VAE

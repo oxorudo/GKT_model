@@ -222,7 +222,9 @@ def train(epoch, best_val_loss):
     for batch_idx, (features, questions, answers) in enumerate(train_loader):
         t1 = time.time()
         if args.cuda:
-            features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
+            features = features.pin_memory().cuda(non_blocking=True)
+            questions = questions.pin_memory().cuda(non_blocking=True)
+            answers = answers.pin_memory().cuda(non_blocking=True)
         ec_list, rec_list, z_prob_list = None, None, None
         if args.model == 'GKT':
             pred_res, ec_list, rec_list, z_prob_list = model(features, questions)

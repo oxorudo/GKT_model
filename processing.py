@@ -40,12 +40,17 @@ def pad_collate(batch):
     questions = [torch.LongTensor(qt) for qt in questions]
     answers = [torch.LongTensor(ans) for ans in answers]
 
-    # 배치 내 가장 긴 시퀀스 길이에 맞춰 패딩
-    feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
-    question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
-    answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
-
-    return feature_pad, question_pad, answer_pad
+    if torch.cuda.is_available():
+        feature_pad = feature_pad.pin_memory().cuda(non_blocking=True)
+        question_pad = question_pad.pin_memory().cuda(non_blocking=True)
+        answer_pad = answer_pad.pin_memory().cuda(non_blocking=True)
+        return feature_pad, question_pad, answer_pad
+    else:
+            # 배치 내 가장 긴 시퀀스 길이에 맞춰 패딩
+        feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
+        question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
+        answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
+        return feature_pad, question_pad, answer_pad
 
 
 def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_graph_path=None, train_ratio=0.7, val_ratio=0.2, shuffle=True, model_type='GKT', use_binary=True, res_len=2, use_cuda=True):
@@ -144,9 +149,9 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(kt_dataset, [train_size, val_size, test_size])
     print('train_size: ', train_size, 'val_size: ', val_size, 'test_size: ', test_size)
 
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate)
-    valid_data_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate)
-    test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate, pin_memory=True)
+    valid_data_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate, pin_memory=True)
+    test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=pad_collate, pin_memory=True)
 
     graph = None
     if model_type == 'GKT':
