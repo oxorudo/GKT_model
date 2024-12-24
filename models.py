@@ -137,9 +137,9 @@ class GKT(nn.Module):
         masked_tmp_ht = tmp_ht[qt_mask]  # [mask_num, concept_num, hidden_dim + embedding_dim]
         mask_num = masked_tmp_ht.shape[0]
 
-        # 수정: `masked_tmp_ht`의 차원이 3이 되도록 보장
-        if masked_tmp_ht.dim() < 3:
-            masked_tmp_ht = masked_tmp_ht.unsqueeze(dim=1)  # Ensure it has 3 dimensions
+        # Ensure `masked_tmp_ht` has correct dimensions
+        if masked_tmp_ht.dim() == 2:
+            masked_tmp_ht = masked_tmp_ht.unsqueeze(dim=1)  # Add a dimension to make it [mask_num, 1, hidden_dim + embedding_dim]
 
         # Ensure dimensions are compatible for repeat
         expanded_self_ht = masked_tmp_ht.unsqueeze(dim=1).repeat(1, self.concept_num, 1).cpu()
@@ -149,7 +149,7 @@ class GKT(nn.Module):
         self_ht = masked_tmp_ht[self_index_tuple]  # [mask_num, hidden_dim + embedding_dim]
         self_features = self.f_self(self_ht)  # [mask_num, hidden_dim]
         
-        # 수정: adj 연산 최적화
+        # Update adjacency operations
         if self.graph_type in ['Dense', 'Transition', 'DKT', 'PAM']:
             adj = self.graph[qt[qt_mask].long(), :].unsqueeze(dim=-1).cpu()
             neigh_features = adj * self.f_neighbor_list[0](neigh_ht)
@@ -181,6 +181,7 @@ class GKT(nn.Module):
         m_next[qt_mask] = neigh_features
         m_next[qt_mask] = m_next[qt_mask].index_put(self_index_tuple, self_features)
         return m_next
+
 
 
 
