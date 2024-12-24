@@ -28,19 +28,23 @@ class KTDataset(Dataset):
 
 
 def pad_collate(batch):
+    # (features, questions, answers) = zip(*batch)
+    # features = [torch.LongTensor(feat) for feat in features]
+    # questions = [torch.LongTensor(qt) for qt in questions]
+    # answers = [torch.LongTensor(ans) for ans in answers]
+    # feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
+    # question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
+    # answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
     (features, questions, answers) = zip(*batch)
-    features = [torch.LongTensor(feat).to(torch.device('cuda', index=0)) for feat in features]
-    questions = [torch.LongTensor(qt).to(torch.device('cuda', index=0)) for qt in questions]
-    answers = [torch.LongTensor(ans).to(torch.device('cuda', index=0)) for ans in answers]
+    features = [torch.LongTensor(feat) for feat in features]
+    questions = [torch.LongTensor(qt) for qt in questions]
+    answers = [torch.LongTensor(ans) for ans in answers]
 
-    # 패딩 처리
+    # 배치 내 가장 긴 시퀀스 길이에 맞춰 패딩
     feature_pad = pad_sequence(features, batch_first=True, padding_value=-1)
     question_pad = pad_sequence(questions, batch_first=True, padding_value=-1)
     answer_pad = pad_sequence(answers, batch_first=True, padding_value=-1)
 
-    # 데이터 위치 확인
-    print("Batch Data Locations:")
-    print(f"  Features: {feature_pad.device}, Questions: {question_pad.device}, Answers: {answer_pad.device}")
     return feature_pad, question_pad, answer_pad
 
 
@@ -70,7 +74,7 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
 
     # if not (df['correct'].isin([0, 1])).all():
     #     raise KeyError(f"The values of the column 'correct' must be 0 or 1.")
-    df = df.iloc[0:100000,:]
+    df = df.iloc[0:10001,:]
 
     # Step 0 - 정렬: 가장 오래된 기록부터 정렬
     df.sort_values(by=["UserID", "CreDate"], inplace=True)  # "CreDate" 컬럼을 기준으로 정렬

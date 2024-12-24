@@ -222,14 +222,7 @@ def train(epoch, best_val_loss):
     for batch_idx, (features, questions, answers) in enumerate(train_loader):
         t1 = time.time()
         if args.cuda:
-                features = features.to(torch.device('cuda', index=0), non_blocking=True)
-                questions = questions.to(torch.device('cuda', index=0), non_blocking=True)
-                answers = answers.to(torch.device('cuda', index=0), non_blocking=True)
-                # 데이터 위치 및 메모리 상태 확인
-                print(f"Batch {batch_idx} - Data Locations:")
-                print(f"  Features: {features.device}, Questions: {questions.device}, Answers: {answers.device}")
-                print(f"  GPU Memory Allocated: {torch.cuda.memory_allocated()} bytes")
-                print(f"  GPU Memory Reserved: {torch.cuda.memory_reserved()} bytes")
+            features, questions, answers = features.cuda(), questions.cuda(), answers.cuda()
         ec_list, rec_list, z_prob_list = None, None, None
         if args.model == 'GKT':
             pred_res, ec_list, rec_list, z_prob_list = model(features, questions)
@@ -258,7 +251,6 @@ def train(epoch, best_val_loss):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        torch.cuda.synchronize()
         del loss
         print('cost time: ', str(time.time() - t1))
 
