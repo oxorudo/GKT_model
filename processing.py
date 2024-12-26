@@ -61,8 +61,8 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
     NOTE: stole some code from https://github.com/lccasagrande/Deep-Knowledge-Tracing/blob/master/deepkt/data_util.py
     """
     df = pd.read_csv(file_path)
-    if "QuizCode" not in df.columns:
-        raise KeyError(f"The column 'QuizCode' was not found on {file_path}")
+    if "f_mchapter_id" not in df.columns:
+        raise KeyError(f"The column 'f_mchapter_id' was not found on {file_path}")
     if "Correct" not in df.columns:
         raise KeyError(f"The column 'Correct' was not found on {file_path}")
     if "UserID" not in df.columns:
@@ -76,7 +76,7 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
     df.sort_values(by=["UserID", "CreDate"], inplace=True)  # "CreDate" 컬럼을 기준으로 정렬
 
     # Step 1.1 - Remove questions without skill
-    df.dropna(subset=['QuizCode'], inplace=True)
+    df.dropna(subset=['f_mchapter_id'], inplace=True)
 
     # Step 1.2 - Remove users with a single answer
     df = df.groupby('UserID').filter(lambda q: len(q) > 1).copy()
@@ -95,7 +95,7 @@ def load_dataset(file_path, batch_size, graph_type, max_users, max_seq, dkt_grap
 
 
     # Step 2 - Enumerate skill id
-    df['skill'], _ = pd.factorize(df['QuizCode'], sort=True)  # we can also use problem_id to represent exercises
+    df['skill'], _ = pd.factorize(df['f_mchapter_id'], sort=True)  # we can also use problem_id to represent exercises
 
     # correct 생성 (O -> 1, X -> 0)
     df['Correct'] = df['Correct'].map({'O': 1, 'X': 0})
