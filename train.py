@@ -529,19 +529,47 @@ mlflow.set_tracking_uri(MLFLOW_SERVER_URI) # mlflow uri 설정
 mlflow.set_experiment(EXPERIMENT_NAME)  # 실험 이름 설정
 
 
+# 체크포인트 저장 함수
+def save_checkpoint(epoch, model, optimizer, scheduler, save_dir, best_val_loss):
+    checkpoint_path = os.path.join(save_dir, 'checkpoint.pth')
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'best_val_loss': best_val_loss,
+    }, checkpoint_path)
+    print(f"Checkpoint saved at epoch {epoch} to {checkpoint_path}")
+
+# 체크포인트 로드 함수
+def load_checkpoint(model, optimizer, scheduler, save_dir):
+    checkpoint_path = os.path.join(save_dir, 'checkpoint.pth')
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        best_val_loss = checkpoint['best_val_loss']
+        print(f"Checkpoint loaded from {checkpoint_path} at epoch {start_epoch}")
+        return start_epoch, best_val_loss
+    else:
+        print("No checkpoint found, starting from scratch.")
+        return 0, np.inf
+
+# 기존 학습 코드 수정
 if args.test is False:
+    start_epoch, best_val_loss = load_checkpoint(model, optimizer, scheduler, args.save_dir)
 
     with mlflow.start_run(nested=True) as run:
-        # MLflow에 파라미터 기록
-        mlflow.log_params(vars(args))
-
+        mlflow.log_params(vars(args))  # MLflow에 파라미터 기록
         print('start training!')
         t_total = time.time()
-        best_val_loss = np.inf
-        best_epoch = 0
-        for epoch in range(args.epochs):
+        best_epoch = start_epoch
+
+        for epoch in range(start_epoch, args.epochs):
             list = train(epoch, best_val_loss)
-            
+
             # 에포크 결과를 MLflow에 기록
             mlflow.log_metric("loss_train", list[0], step=epoch)
             mlflow.log_metric("auc_train", list[1], step=epoch)
@@ -550,10 +578,13 @@ if args.test is False:
             mlflow.log_metric("auc_val", list[4], step=epoch)
             mlflow.log_metric("acc_val", list[5], step=epoch)
 
-
+            # 최적 모델 저장 및 체크포인트 저장
             if list[3] < best_val_loss:
                 best_val_loss = list[3]
                 best_epoch = epoch
+                print('Best model so far, saving...')
+                torch.save(model.state_dict(), model_file)
+                save_checkpoint(epoch, model, optimizer, scheduler, args.save_dir, best_val_loss)
 
         print("Optimization Finished!")
         print("Best Epoch: {:04d}".format(best_epoch))
@@ -570,4 +601,5 @@ if args.test is False:
             log.flush()
 
         test_with_mlflow()
+
 
